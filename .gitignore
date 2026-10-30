@@ -1,0 +1,10 @@
+/.cac
+/.codegraph
+/.idea
+/.opencode
+/.bin
+/.arch_lens
+/front/node_modules
+/front/dist
+/front/tsconfig.tsbuildinfo
+/front/package-lock.json

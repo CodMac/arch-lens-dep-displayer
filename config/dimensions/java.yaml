@@ -1,0 +1,26 @@
+# Java 语言维度配置（docs/middleware.md §3.2）
+language: java
+hierarchy:
+  - level: 1
+    kind: PACKAGE
+    parent_of: [PACKAGE]
+  - level: 2
+    kind: CLASS
+    parent_of: [CLASS, INTERFACE, ENUM]
+  - level: 3
+    kind: MEMBER
+    parent_of: [METHOD, FIELD]
+relation_types:
+  - CALL
+  - CREATE
+  - EXTEND
+  - IMPLEMENT
+  - TYPE_ARG
+  - CAPTURE
+  - USE
+  - ASSIGN
+  - CAST
+  - PARAMETER
+  - RETURN
+  - THROW
+  - ANNOTATION

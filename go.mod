@@ -5,7 +5,7 @@ go 1.25.2
 replace github.com/CodMac/arch-lens-dep-analyer => ../arch-lens-dep-analyer
 
 require (
-	github.com/CodMac/arch-lens-dep-analyer v0.0.0-00010101000000-000000000000
+	github.com/CodMac/arch-lens-dep-analyer v0.0.0-20261030132132-ce2ba63ac4a0
 	github.com/go-chi/chi/v5 v5.5.0
 	gopkg.in/yaml.v3 v3.0.1
 )

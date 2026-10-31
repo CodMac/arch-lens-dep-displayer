@@ -61,10 +61,8 @@ registry（多源 + 激活）──► api（REST）──► front (浏览器)
 
 | 平台 | 目录 | 库 |
 |---|---|---|
-| Windows amd64 | `deps/windows_amd64/` | `duckdb.dll`（+ import lib `libduckdb.dll.a`） |
-| Windows arm64 | `deps/windows_arm64/` | `duckdb.dll` |
-| Linux amd64 | `deps/linux_amd64/` | `libduckdb.so` |
-| Linux arm64 | `deps/linux_arm64/` | `libduckdb.so` |
+| Windows amd64 | `deps/windows_amd64/` | `duckdb.dll`（+ `duckdb.h`） |
+| Linux amd64 | `deps/linux_amd64/` | `libduckdb.so`（+ `duckdb.h`） |
 
 运行时：Windows 需把 `duckdb.dll` 放在 exe 同目录（`.bin/` 已含）；Linux 需 `LD_LIBRARY_PATH` 指向 deps 对应目录。
 

@@ -21,6 +21,26 @@ export interface GraphNode {
   label: string
   kind: string
   size: number
+  /** 子包数（包节点，>0 表示可继续展开子包）。 */
+  children?: number
+  /** 包树深度（顶层=0）。 */
+  depth?: number
+  /** 是否叶子包（无子包，点击进入类层）。 */
+  isLeaf?: boolean
+  /** 所属父包 QN（Combo 嵌套用，仅包节点）。 */
+  parent?: string
+}
+
+/** Combo 容器（包气泡，含父子嵌套）。id 为包 QN。 */
+export interface ComboData {
+  id: string
+  label: string
+  /** 父包 QN（顶层为 ''）。 */
+  parent?: string
+  size: number
+  children: number
+  depth: number
+  collapsed?: boolean
 }
 
 /** 图边。type 为主类型（兼容旧渲染），types 为完整类型集。 */
@@ -85,6 +105,20 @@ export interface TopResult {
 export interface GraphData {
   nodes: GraphNode[]
   edges: GraphEdge[]
+}
+
+/** 包树结构项（overview 附带，供构建完整父链）。 */
+export interface PkgTreeNode {
+  qn: string
+  parent: string
+  depth: number
+}
+
+/** 仓库全景响应：顶层包 + 包间边 + 完整包树。 */
+export interface OverviewData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  tree: PkgTreeNode[]
 }
 
 /** 节点子级（children 接口）。 */

@@ -4,12 +4,14 @@
 // D3 能力：节点右键菜单（下钻 / 扇入 / 扇出）、选中节点（起点/终点）与路径高亮。
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { Graph, GraphEvent, NodeEvent } from '@antv/g6'
-import type { GraphOptions, NodeData, EdgeData, IElementEvent, Element } from '@antv/g6'
-import type { GraphNode, GraphEdge } from '../types'
+import type { GraphOptions, NodeData, EdgeData, ComboData as GComboData, IElementEvent, Element } from '@antv/g6'
+import type { GraphNode, GraphEdge, ComboData } from '../types'
 
 const props = defineProps<{
   nodes: GraphNode[]
   edges: GraphEdge[]
+  /** Combo 包气泡（仓库全景用）。非空时进入 Combo 嵌套渲染模式。 */
+  combos?: ComboData[]
   kindColors: Record<string, string>
   /** 环成员 QN → 环 ID 列表（高亮 + tooltip 环归属）。 */
   cycleOf?: Record<string, number[]>
@@ -42,12 +44,21 @@ const neighborCount = computed<Record<string, number>>(() => {
   return m
 })
 
-// 布局：>60 节点用力导向，否则 dagre 分层（继承/依赖更清晰）。
+// 布局：Combo 模式用组合布局（包气泡嵌套），否则 >60 节点用力导向 / dagre 分层。
 function buildOptions(): GraphOptions {
+  const hasCombo = !!props.combos?.length
   const nodeCount = props.nodes.length
-  const layout = nodeCount > 60
-    ? { type: 'force', preventOverlap: true, linkDistance: 80 }
-    : { type: 'dagre', rankdir: 'LR', nodesep: 24, ranksep: 60 }
+  const layout = hasCombo
+    ? {
+        type: 'combo-combined',
+        // 气泡内部：子包/叶子包用同心圆聚拢；整体用 force 防止重叠。
+        layout: (comboId: string | null) => (!comboId ? { type: 'force', preventOverlap: true } : { type: 'concentric', preventOverlap: true }),
+        comboSpacing: 24,
+        comboPadding: 20,
+      }
+    : nodeCount > 60
+      ? { type: 'force', preventOverlap: true, linkDistance: 80 }
+      : { type: 'dagre', rankdir: 'LR', nodesep: 24, ranksep: 60 }
 
   const maxSize = Math.max(1, ...props.nodes.map((n) => n.size))
   const sizeOf = (size: number): number => 22 + Math.round((size / maxSize) * 34)
@@ -56,6 +67,11 @@ function buildOptions(): GraphOptions {
   const isHighFanin = (d: NodeData): boolean => !!props.highFaninNodes?.has(d.id as string)
   const isPathNode = (d: NodeData): boolean => !!props.pathHighlight?.nodes?.has(d.id as string)
   const isStarred = (d: NodeData): boolean => !!props.starredNodes?.has(d.id as string)
+  // 可展开标记：包且有子包（children>0）。
+  const isExpandable = (d: NodeData): boolean =>
+    (d.data?.kind as string) === 'PACKAGE' && ((d.data?.children as number) ?? 0) > 0
+  // 包深度（顶层=0）。
+  const depthOf = (d: NodeData): number => (d.data?.depth as number) ?? 0
 
   return {
     container: container.value as HTMLElement,
@@ -79,21 +95,64 @@ function buildOptions(): GraphOptions {
           if (isHighFanin(d)) return '#9270CA' // 高扇入：紫描边
           if (isStarred(d)) return '#d4a017' // 收藏：金描边
           if (d.data?.anchor as boolean) return '#c9cdd4'
+          if (isExpandable(d)) return '#5B8FF9' // 可展开包：蓝描边
           return '#fff'
         },
         lineWidth: (d: NodeData) => {
           if (isCycle(d) || isHighFanin(d) || isPathNode(d)) return 3
           if (isStarred(d)) return 2.5
+          if (isExpandable(d)) return 2
           return 1.5
         },
         lineDash: (d: NodeData) => ((d.data?.anchor as boolean) ? [3, 3] : []),
         labelText: (d: NodeData) => {
           const label = (d.data?.label as string) ?? String(d.id)
-          return isStarred(d) ? '★ ' + label : label
+          // 可展开包：▾ 前缀提示可展开子包。
+          const mark = isExpandable(d) ? '▾ ' : ''
+          return (isStarred(d) ? '★ ' : '') + mark + label
         },
         labelPlacement: 'bottom',
         labelFontSize: 11,
-        labelFill: (d: NodeData) => ((d.data?.anchor as boolean) ? '#86909c' : '#333'),
+        labelFill: (d: NodeData) => {
+          if (d.data?.anchor as boolean) return '#86909c'
+          // 嵌套包（depth>0）label 略浅，区分层级。
+          return depthOf(d) > 0 ? '#6b7280' : '#333'
+        },
+      },
+    },
+    combo: {
+      type: 'rect',
+      style: {
+        // 包气泡：圆角矩形，尺寸随子树类数（size）缩放。
+        size: (d: GComboData) => {
+          const s = (d.data?.size as number) ?? 0
+          return [80 + Math.min(s, 200), 60 + Math.min(s, 120)]
+        },
+        radius: 10,
+        fill: (d: GComboData) => {
+          const dep = (d.data?.depth as number) ?? 0
+          // 层级越深底色越浅。
+          return dep === 0 ? '#eaf3ff' : dep === 1 ? '#f2f7ff' : '#f7fafd'
+        },
+        stroke: (d: GComboData) => {
+          const dep = (d.data?.depth as number) ?? 0
+          return dep === 0 ? '#5B8FF9' : dep === 1 ? '#91caff' : '#c3d8f2'
+        },
+        lineWidth: (d: GComboData) => ((d.data?.depth as number) === 0 ? 2 : 1.2),
+        lineDash: (d: GComboData) => ((d.data?.collapsed as boolean) ? [4, 2] : []),
+        padding: 16,
+        labelText: (d: GComboData) => {
+          const label = (d.data?.label as string) ?? String(d.id)
+          return (d.data?.collapsed as boolean) ? `${label} (${(d.data?.size as number) ?? 0})` : label
+        },
+        // 气泡标签常显（需求：节点默认展示 title）。
+        labelPlacement: 'top',
+        labelFontSize: 12,
+        labelFontWeight: 600,
+        labelFill: (d: GComboData) => (((d.data?.depth as number) ?? 0) === 0 ? '#1f2329' : '#4e5969'),
+        // 收起时显示标记。
+        collapsedMarker: true,
+        collapsedMarkerSize: 12,
       },
     },
     edge: {
@@ -102,18 +161,22 @@ function buildOptions(): GraphOptions {
         stroke: (d: EdgeData) => {
           const k = `${d.source}->${d.target}`
           if (props.pathHighlight?.edges?.has(k)) return '#165dff' // 路径边：蓝
-          return d.data?.type === 'CONTAIN' ? '#d9d9d9' : '#bfc6d3'
+          // 方案 D：CONTAIN 层级骨架退为淡灰背景，依赖边为前景色。
+          return d.data?.type === 'CONTAIN' ? '#e5e6eb' : '#bfc6d3'
         },
         lineWidth: (d: EdgeData) => {
           const k = `${d.source}->${d.target}`
           if (props.pathHighlight?.edges?.has(k)) return 3
-          // 边宽 = 依赖条数（需求2）：count → 1~8 线性映射（log 压缩，大值不至于过粗）。
+          // CONTAIN 背景边：细虚线，不随依赖条数增粗。
+          if (d.data?.type === 'CONTAIN') return 1
+          // 依赖边宽 = 依赖条数（需求2）：count → 1~8 线性映射（log 压缩，大值不至于过粗）。
           const count = (d.data?.count as number) ?? 1
           if (count <= 1) return 1
           return Math.min(1 + Math.log2(count + 1), 8)
         },
+        lineDash: (d: EdgeData) => (d.data?.type === 'CONTAIN' ? [4, 4] : []), // CONTAIN 虚线背景
         endArrow: true,
-        strokeOpacity: 0.7,
+        strokeOpacity: (d: EdgeData) => (d.data?.type === 'CONTAIN' ? 0.5 : 0.7),
       },
     },
     behaviors: [
@@ -121,6 +184,14 @@ function buildOptions(): GraphOptions {
       'drag-canvas',
       'drag-element',
       'hover-activate',
+      // Combo 模式：单击包气泡展开/收起（combo 不触发 node-click，与叶子包下钻不冲突）；
+      // 标签缩放自适应（密集时隐藏部分 label）。
+      ...(hasCombo
+        ? [
+            { type: 'collapse-expand', key: 'combo-collapse', trigger: 'click' },
+            { type: 'auto-adapt-label', key: 'label-adapt' },
+          ]
+        : []),
     ],
     plugins: [
       // 节点右键菜单（D3）：下钻 / 扇入 / 扇出。
@@ -152,7 +223,6 @@ function buildOptions(): GraphOptions {
         },
       },
       // 节点 tooltip（hover 触发）。
-      // 节点 tooltip（hover 触发）。
       {
         type: 'tooltip',
         key: 'node-tooltip',
@@ -160,6 +230,17 @@ function buildOptions(): GraphOptions {
         getContent: (evt: IElementEvent) => {
           const id = (evt as unknown as { target?: { id?: string } }).target?.id as string
           if (!id) return ''
+          // Combo 包气泡：显示包信息（子树类数/子包数/深度）。
+          const c = props.combos?.find((x) => x.id === id)
+          if (c) {
+            return `<div class="g6-tooltip">
+              <div class="t-title">${c.label}</div>
+              <div class="t-row"><span>kind</span><b>PACKAGE</b></div>
+              <div class="t-row"><span>类数</span><b>${c.size}</b></div>
+              <div class="t-row"><span>子包</span><b>${c.children}</b></div>
+              <div class="t-row"><span>深度</span><b>${c.depth}</b></div>
+            </div>`
+          }
           const n = props.nodes.find((x) => x.id === id)
           if (!n) return ''
           const nb = neighborCount.value[id] ?? 0
@@ -182,10 +263,12 @@ function buildOptions(): GraphOptions {
   }
 }
 
-// 把业务数据映射为 G6 NodeData/EdgeData（业务字段放 data 供样式回调使用）。
-function toG6Data(): { nodes: NodeData[]; edges: EdgeData[] } {
+// 把业务数据映射为 G6 NodeData/EdgeData/ComboData（业务字段放 data 供样式回调使用）。
+function toG6Data(): { nodes: NodeData[]; edges: EdgeData[]; combos: GComboData[] } {
   const nodes: NodeData[] = props.nodes.map((n) => ({
     id: n.id,
+    // 叶子包挂在父包气泡下（Combo 嵌套）。
+    combo: n.parent || undefined,
     data: { ...n },
   }))
   const edges: EdgeData[] = props.edges.map((e) => ({
@@ -194,7 +277,13 @@ function toG6Data(): { nodes: NodeData[]; edges: EdgeData[] } {
     target: e.target,
     data: { ...e },
   }))
-  return { nodes, edges }
+  const combos: GComboData[] = (props.combos ?? []).map((c) => ({
+    id: c.id,
+    // 子包气泡挂在父包气泡下（嵌套包含关系）。
+    combo: c.parent || undefined,
+    data: { ...c },
+  }))
+  return { nodes, edges, combos }
 }
 
 function render(): void {
@@ -227,8 +316,16 @@ function focusCycles(): void {
   void graph?.focusElement(ids)
 }
 
-onMounted(() => {
+// 当前应使用的布局模式（与图实例构建时一致）。数据变化后若模式改变，dagre 无法承载 combo，
+// 需重建图实例；故此处单独判定。
+function currentLayoutMode(): 'combo' | 'force' | 'dagre' {
+  return !!props.combos?.length ? 'combo' : props.nodes.length > 60 ? 'force' : 'dagre'
+}
+let builtMode: 'combo' | 'force' | 'dagre' | '' = ''
+
+function createGraph(): void {
   if (!container.value) return
+  graph?.destroy()
   graph = new Graph(buildOptions())
   graph.on(NodeEvent.CLICK, (evt) => {
     const id = (evt as { target?: { id?: string } }).target?.id
@@ -238,7 +335,12 @@ onMounted(() => {
   })
   // 画布空白点击：清空选择（可选）。
   graph.on(GraphEvent.AFTER_RENDER, () => {})
+  builtMode = currentLayoutMode()
   render()
+}
+
+onMounted(() => {
+  createGraph()
 })
 
 // ---- D3 选点模式：路径起点/终点 ----
@@ -255,8 +357,14 @@ onBeforeUnmount(() => {
   graph = null
 })
 
-// 数据变化时重渲染（保持图实例，更新数据）。
-watch(() => [props.nodes, props.edges], render, { deep: true })
+// 数据变化时重渲染（保持图实例，更新数据）；布局模式切换（如加载后从 dagre 变为 combo）时重建图实例。
+watch(() => [props.nodes, props.edges], () => {
+  if (builtMode !== currentLayoutMode()) {
+    createGraph()
+  } else {
+    render()
+  }
+}, { deep: true })
 </script>
 
 <template>

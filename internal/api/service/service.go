@@ -26,7 +26,7 @@ func (s *Service) ActiveSID() string { return s.mgr.ActiveSID() }
 
 // mapNode repository.Node → dto.Node。
 func mapNode(n repository.Node) dto.Node {
-	return dto.Node{ID: n.ID, Label: n.Label, Kind: n.Kind, Size: n.Size}
+	return dto.Node{ID: n.ID, Label: n.Label, Kind: n.Kind, Size: n.Size, Children: n.Children, Depth: n.Depth}
 }
 
 // mapNodes repository.Node 列表 → dto.Node 列表。

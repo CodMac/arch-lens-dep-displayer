@@ -2,15 +2,19 @@ package repository
 
 import (
 	"database/sql"
+	"sort"
 	"strings"
 )
 
-// Node 图节点。Size=直接子节点数（规模）。
+// Node 图节点。Size=规模（包=子树总类数，类=成员数）；Children=子包数（包节点，>0 表示可展开）；
+// Depth=包树深度（顶层=0，仅包节点有意义）。
 type Node struct {
-	ID    string
-	Label string
-	Kind  string
-	Size  int
+	ID       string
+	Label    string
+	Kind     string
+	Size     int
+	Children int
+	Depth    int
 }
 
 // Edge 图边。Type 为主类型，Types 为完整类型集。
@@ -106,11 +110,14 @@ func (r *Repository) TopNodes(dimID, level int) ([]Node, error) {
 	return nodes, nil
 }
 
-// OverviewNodes 返回 level=1 顶层包节点（size=包内直接类数）。
+// OverviewNodes 返回全部包节点（level=1 全量），供前端 Combo 嵌套气泡渲染。
+// size=子树总类数，Children=直接子包数，Depth=包树深度（顶层=0）。
+// 注意：必须先构建包树再查包节点，避免单连接下游标未关时并发查询失败。
 func (r *Repository) OverviewNodes(dimID int) ([]Node, error) {
-	rows, err := r.db().Query(`SELECT h.qn, h.kind,
-			(SELECT COUNT(*) FROM hierarchy_node c WHERE c.dimension_id = h.dimension_id AND c.level = h.level + 1 AND c.parent_qn = h.qn)
-		FROM hierarchy_node h WHERE h.dimension_id = ? AND h.level = 1 ORDER BY h.qn`, dimID)
+	tree := r.pkgTree(dimID)
+
+	rows, err := r.db().Query(`SELECT qn, kind FROM hierarchy_node
+		WHERE dimension_id = ? AND level = 1 ORDER BY qn`, dimID)
 	if err != nil {
 		return nil, err
 	}
@@ -119,10 +126,13 @@ func (r *Repository) OverviewNodes(dimID int) ([]Node, error) {
 	var nodes []Node
 	for rows.Next() {
 		var n Node
-		if err := rows.Scan(&n.ID, &n.Kind, &n.Size); err != nil {
+		if err := rows.Scan(&n.ID, &n.Kind); err != nil {
 			return nil, err
 		}
 		n.Label = lastSeg(n.ID)
+		n.Size = tree.classCount[n.ID]
+		n.Children = len(tree.children[n.ID])
+		n.Depth = tree.depth[n.ID]
 		nodes = append(nodes, n)
 	}
 	rows.Close()
@@ -130,6 +140,134 @@ func (r *Repository) OverviewNodes(dimID int) ([]Node, error) {
 		return nil, err
 	}
 	return nodes, nil
+}
+
+// SubtreeClassCount 返回包 qn 子树下的类总数（size 口径）。
+func (r *Repository) SubtreeClassCount(dimID int, qn string) int {
+	return r.pkgTree(dimID).classCount[qn]
+}
+
+// PkgTreeStructure 返回全部包节点及其父包、包树深度（qn, parent_qn, depth）。
+// 供 overview 附带完整包树，前端据此构建任意包的祖先链（无需懒加载中间层）。
+func (r *Repository) PkgTreeStructure(dimID int) ([]PkgTree, error) {
+	tree := r.pkgTree(dimID)
+
+	rows, err := r.db().Query(`SELECT qn, parent_qn FROM hierarchy_node WHERE dimension_id = ? AND level = 1`, dimID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PkgTree
+	for rows.Next() {
+		var t PkgTree
+		if err := rows.Scan(&t.QN, &t.Parent); err != nil {
+			return nil, err
+		}
+		t.Depth = tree.depth[t.QN]
+		out = append(out, t)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PkgTree 包树结构项。
+type PkgTree struct {
+	QN     string
+	Parent string
+	Depth  int
+}
+
+// pkgTree 一次性加载包树并计算每包子树类数（O(P+E)）。
+// 注意包树由 parent_qn 决定，非 QN 前缀树（com.order 与 com.demo 同属顶层）。
+func (r *Repository) pkgTree(dimID int) *pkgTreeData {
+	t := &pkgTreeData{children: map[string][]string{}, classCount: map[string]int{}}
+
+	pkgRows, err := r.db().Query(`SELECT qn, parent_qn FROM hierarchy_node WHERE dimension_id = ? AND level = 1`, dimID)
+	if err != nil {
+		return t
+	}
+	defer pkgRows.Close()
+	for pkgRows.Next() {
+		var qn, parent string
+		if err := pkgRows.Scan(&qn, &parent); err != nil {
+			continue
+		}
+		t.children[parent] = append(t.children[parent], qn)
+	}
+	pkgRows.Close()
+
+	classRows, err := r.db().Query(`SELECT parent_qn, COUNT(*) FROM hierarchy_node WHERE dimension_id = ? AND level = 2 GROUP BY parent_qn`, dimID)
+	if err != nil {
+		return t
+	}
+	defer classRows.Close()
+	for classRows.Next() {
+		var p string
+		var c int
+		if err := classRows.Scan(&p, &c); err != nil {
+			continue
+		}
+		t.classCount[p] += c
+	}
+	classRows.Close()
+
+	// 自底向上累加：按包深度从深到浅（子包先于父包），保证每个包只上卷一次。
+	t.computeSizes()
+	return t
+}
+
+func (t *pkgTreeData) computeSizes() {
+	// 深度 BFS：parent='' 为根，逐层标记包深度。
+	t.depth = map[string]int{}
+	frontier := t.children[""]
+	for _, p := range frontier {
+		t.depth[p] = 0
+	}
+	for len(frontier) > 0 {
+		var next []string
+		for _, p := range frontier {
+			for _, c := range t.children[p] {
+				t.depth[c] = t.depth[p] + 1
+				next = append(next, c)
+			}
+		}
+		frontier = next
+	}
+
+	// 收集全部包并按深度降序：越深的子包越先并入父包。
+	pkgs := make([]string, 0, len(t.children))
+	var walk func(string)
+	walk = func(p string) {
+		for _, c := range t.children[p] {
+			pkgs = append(pkgs, c)
+			walk(c)
+		}
+	}
+	walk("")
+	sort.Slice(pkgs, func(i, j int) bool { return t.depth[pkgs[i]] > t.depth[pkgs[j]] })
+
+	parentOf := map[string]string{}
+	for parent, kids := range t.children {
+		for _, k := range kids {
+			parentOf[k] = parent
+		}
+	}
+	for _, p := range pkgs {
+		if par := parentOf[p]; par != "" {
+			t.classCount[par] += t.classCount[p]
+		}
+	}
+}
+
+// pkgTreeData 包树：children[parent]=直接子包，classCount[包]=子树总类数，depth[包]=包树深度。
+type pkgTreeData struct {
+	children   map[string][]string
+	classCount map[string]int
+	depth      map[string]int
 }
 
 // LevelEdges 返回指定层级全部聚合边。
@@ -186,8 +324,17 @@ func (r *Repository) NodeLevel(dimID int, qn string) (int, bool) {
 	return 0, false
 }
 
-// ChildNodes 返回节点 qn 的下一层子节点（hierarchy_node 优先，element_node 成员兜底）。
+// ChildNodes 返回节点 qn 的下一层子节点（包深度优先，叶子包兜底到类）。
+// 规则：
+//  1. qn 是包 → 优先返回子包（同 level=1，parent_qn=qn），size=子树总类数；
+//  2. qn 是叶子包（无子包）→ 返回其类（level=2，parent_qn=qn）；
+//  3. qn 是类 → 返回 element_node 归属的成员（level=3，原逻辑兜底）。
 func (r *Repository) ChildNodes(dimID int, qn string, level, nextLevel int) ([]Node, error) {
+	// 包节点：子包优先，叶子包兜底到类。
+	if level == 1 {
+		return r.pkgChildren(dimID, qn)
+	}
+
 	rows, err := r.db().Query(`SELECT h.qn, h.kind,
 			(SELECT COUNT(*) FROM hierarchy_node c WHERE c.dimension_id = h.dimension_id AND c.level = h.level + 1 AND c.parent_qn = h.qn)
 			+ (SELECT COUNT(*) FROM element_node en WHERE en.dimension_id = h.dimension_id AND en.node_qn = h.qn AND en.level = h.level + 1)
@@ -231,8 +378,46 @@ func (r *Repository) ChildNodes(dimID int, qn string, level, nextLevel int) ([]N
 	return nodes, nil
 }
 
-// NodeSize 返回节点直接子节点数（hierarchy_node 子层 + element_node 成员）。
+// pkgChildren 返回包的下一层子节点：子包 + 直接类（连续树，混合包也能看到本包类）。
+func (r *Repository) pkgChildren(dimID int, qn string) ([]Node, error) {
+	tree := r.pkgTree(dimID)
+
+	// 子包（同 level=1，parent_qn=qn）。
+	kids := tree.children[qn]
+	nodes := make([]Node, 0, len(kids))
+	for _, k := range kids {
+		n := Node{ID: k, Label: lastSeg(k), Kind: "PACKAGE", Size: tree.classCount[k], Children: len(tree.children[k])}
+		nodes = append(nodes, n)
+	}
+
+	// 直接类（本包内 level=2，parent_qn=qn），size=成员数。
+	classRows, err := r.db().Query(`SELECT h.qn, h.kind,
+			(SELECT COUNT(*) FROM element_node en WHERE en.dimension_id = h.dimension_id AND en.node_qn = h.qn AND en.level = h.level + 1)
+		FROM hierarchy_node h WHERE h.dimension_id = ? AND h.level = 2 AND h.parent_qn = ? ORDER BY h.qn`, dimID, qn)
+	if err != nil {
+		return nil, err
+	}
+	defer classRows.Close()
+	for classRows.Next() {
+		var n Node
+		if err := classRows.Scan(&n.ID, &n.Kind, &n.Size); err != nil {
+			return nil, err
+		}
+		n.Label = lastSeg(n.ID)
+		nodes = append(nodes, n)
+	}
+	classRows.Close()
+	if err := classRows.Err(); err != nil {
+		return nil, err
+	}
+	return nodes, nil
+}
+
+// NodeSize 返回节点规模：包=子树总类数，类=直接成员数。
 func (r *Repository) NodeSize(dimID int, qn string, level int) int {
+	if level == 1 {
+		return r.SubtreeClassCount(dimID, qn)
+	}
 	var size int
 	err := r.db().QueryRow(`SELECT
 			(SELECT COUNT(*) FROM hierarchy_node c WHERE c.dimension_id = ? AND c.level = ? + 1 AND c.parent_qn = ?)
@@ -289,16 +474,16 @@ func (r *Repository) FocusEdges(dimID, level int, qn string, types []string) ([]
 	return edges, rows.Err()
 }
 
-// FanEdges 返回节点 qn 的入边或出边（level 层级）。isIn=true 入边。
+// FanEdges 返回节点 qn 的入边或出边（level 层级，剔除 CONTAIN 背景边）。isIn=true 入边。
 func (r *Repository) FanEdges(dimID, level int, qn string, isIn bool) ([]Edge, error) {
 	var rows *sql.Rows
 	var err error
 	if isIn {
 		rows, err = r.db().Query(`SELECT source_qn, target_qn, types, edge_count FROM level_edges
-			WHERE dimension_id = ? AND level = ? AND target_qn = ?`, dimID, level, qn)
+			WHERE dimension_id = ? AND level = ? AND target_qn = ? AND types <> 'CONTAIN'`, dimID, level, qn)
 	} else {
 		rows, err = r.db().Query(`SELECT source_qn, target_qn, types, edge_count FROM level_edges
-			WHERE dimension_id = ? AND level = ? AND source_qn = ?`, dimID, level, qn)
+			WHERE dimension_id = ? AND level = ? AND source_qn = ? AND types <> 'CONTAIN'`, dimID, level, qn)
 	}
 	if err != nil {
 		return nil, err

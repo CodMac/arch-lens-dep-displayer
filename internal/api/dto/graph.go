@@ -1,12 +1,15 @@
 // Package dto 定义 API 出入参 schema（与前端契约对齐）。
 package dto
 
-// Node 图节点。Size=直接子节点数（规模）。
+// Node 图节点。Size=规模（包=子树总类数，类=成员数）；Children=子包数（>0 表示可展开）；
+// Depth=包树深度（顶层=0，仅包节点有意义）。
 type Node struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Kind  string `json:"kind"`
-	Size  int    `json:"size"`
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Kind     string `json:"kind"`
+	Size     int    `json:"size"`
+	Children int    `json:"children,omitempty"`
+	Depth    int    `json:"depth,omitempty"`
 }
 
 // Edge 图边。Type 为主类型（兼容旧前端），Types 为完整类型集。
@@ -31,6 +34,20 @@ type Dimension struct {
 	Language string  `json:"language"`
 	Name     string  `json:"name"`
 	Levels   []Level `json:"levels"`
+}
+
+// PkgTreeNode 包树结构项（overview 附带，供前端构建完整父链与包深度）。
+type PkgTreeNode struct {
+	QN     string `json:"qn"`
+	Parent string `json:"parent"`
+	Depth  int    `json:"depth"`
+}
+
+// Overview 响应：顶层包节点 + 包间边 + 完整包树结构。
+type Overview struct {
+	Nodes []Node        `json:"nodes"`
+	Edges []Edge        `json:"edges"`
+	Tree  []PkgTreeNode `json:"tree"`
 }
 
 // SourceLoc 源码定位响应（elements.path/start_line）。

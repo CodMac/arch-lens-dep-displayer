@@ -8,3 +8,4 @@
 /front/dist
 /front/tsconfig.tsbuildinfo
 /front/package-lock.json
+/.verify

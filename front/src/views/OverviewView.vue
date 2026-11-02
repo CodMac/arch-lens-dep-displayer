@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// L0 仓库总览（需求1）：带规模的全景图。
-// 顶层包节点（size=包内类数）+ 包间聚合边（边宽=依赖条数）。点击包进入 L1。
+// L0 仓库总览（需求1）：Combo 嵌套气泡的全景图。
+// 每个包是一个气泡（Combo），子包气泡嵌套进父包气泡（com 包含 com.aaa），
+// 叶子包（无子包）是父包气泡内的小圆点，点击下钻进类层。
+// 依赖边在全量包间显示；Combo 收起时 G6 collapse-expand-combo 自动把内部边卷到气泡、外部边保留。
 import { ref, onMounted, watch } from 'vue'
 import GraphCanvas from '../components/GraphCanvas.vue'
 import SourcePanel from '../components/SourcePanel.vue'
@@ -11,7 +13,7 @@ import { useLayerStackStore } from '../stores/layerStack'
 import { useAnnotationsStore } from '../stores/annotations'
 import { fetchOverview } from '../api/nodes'
 import { fetchMetrics, fetchScc } from '../api/metrics'
-import type { GraphData } from '../types'
+import type { GraphNode, GraphEdge, ComboData } from '../types'
 
 const emit = defineEmits<{ (e: 'enter'): void }>()
 
@@ -21,11 +23,17 @@ const annotations = useAnnotationsStore()
 
 const sourcePanelRef = ref<InstanceType<typeof SourcePanel> | null>(null)
 
-const data = ref<GraphData>({ nodes: [], edges: [] })
 const loading = ref(false)
 const error = ref('')
 const metrics = ref<Record<string, number>>({})
 const cycleCount = ref(0)
+
+// 全量包气泡（Combo）与叶子包节点、包间依赖边。
+const combos = ref<ComboData[]>([])
+const nodes = ref<GraphNode[]>([])
+const edges = ref<GraphEdge[]>([])
+
+// ---- 数据加载 ----
 
 async function load(): Promise<void> {
   const dimId = dimensionStore.currentId
@@ -33,7 +41,32 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    data.value = await fetchOverview(dimId)
+    const ov = await fetchOverview(dimId)
+    // ov.nodes = 全部包；非叶子包 → Combo（气泡），叶子包 → 父包气泡内节点。
+    const pkgParent = new Map<string, string>()
+    for (const t of ov.tree) pkgParent.set(t.qn, t.parent)
+
+    const comboList: ComboData[] = []
+    const nodeList: GraphNode[] = []
+    for (const n of ov.nodes) {
+      const parent = pkgParent.get(n.id) ?? ''
+      if ((n.children ?? 0) > 0) {
+        comboList.push({
+          id: n.id,
+          label: n.label,
+          parent,
+          size: n.size,
+          children: n.children ?? 0,
+          depth: n.depth ?? 0,
+        })
+      } else {
+        nodeList.push({ ...n, parent })
+      }
+    }
+    combos.value = comboList
+    nodes.value = nodeList
+    edges.value = ov.edges
+
     metrics.value = await fetchMetrics(dimId)
     const comps = await fetchScc(dimId)
     cycleCount.value = comps.length
@@ -44,16 +77,18 @@ async function load(): Promise<void> {
   }
 }
 
-// 点击包节点 → 进入 L1（下钻到该包）。
-function enter(id: string): void {
-  const n = data.value.nodes.find((x) => x.id === id)
+// ---- 点击交互 ----
+
+// 点击叶子包（圆点）→ 下钻进类层；Combo 气泡的展开/收起由 G6 双击驱动。
+function onNodeClick(id: string): void {
+  const n = nodes.value.find((x) => x.id === id)
   if (!n) return
   layerStack.reset()
   layerStack.push({ level: 1, qn: n.id, label: n.label, kind: n.kind })
   emit('enter')
 }
 
-// 右键菜单动作：源码定位（需求11）/ 收藏（需求14）。
+// 右键菜单动作：源码定位 / 收藏。
 function onNodeAction(id: string, action: 'drill' | 'fanin' | 'fanout' | 'source' | 'star' | 'unstar'): void {
   if (action === 'source') {
     void sourcePanelRef.value?.openFor(id)
@@ -89,17 +124,18 @@ watch(() => dimensionStore.currentId, (id) => {
       <div v-if="loading" class="ov-overlay">加载中…</div>
       <div v-else-if="error" class="ov-overlay error">{{ error }}</div>
       <GraphCanvas
-        :nodes="data.nodes"
-        :edges="data.edges"
+        :nodes="nodes"
+        :edges="edges"
+        :combos="combos"
         :kind-colors="dimensionStore.kindColors"
         :starred-nodes="annotations.starredSet"
-        @node-click="enter"
+        @node-click="onNodeClick"
         @node-action="onNodeAction"
       />
       <SourcePanel ref="sourcePanelRef" />
       <StarPanel />
     </div>
-    <p class="hint">点击包节点进入 L1 包内视图 · 边宽 = 包间依赖条数</p>
+    <p class="hint">气泡 = 包（单击展开/收起） · 小圆点 = 叶子包（点击进入类层） · 边宽 = 包间依赖条数</p>
   </div>
 </template>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 关系类型过滤：选项由维度 relation_types 驱动（含 CONTAIN）。
 import { computed } from 'vue'
-import { useDimensionStore } from '../stores/dimension'
+import { useDimensionStore, CONTAIN_TYPE } from '../stores/dimension'
 import { useGraphDataStore } from '../stores/graphData'
 
 const dimensionStore = useDimensionStore()
@@ -10,7 +10,8 @@ const graphStore = useGraphDataStore()
 const types = computed(() => {
   const present = new Set(graphStore.allTypes)
   // 只展示图里实际出现的类型 + 维度声明的关系类型。
-  return dimensionStore.relationTypes.filter((t) => present.has(t))
+  // 方案 D：CONTAIN 是层级骨架背景边，恒显示不可过滤，故从选项中移除。
+  return dimensionStore.relationTypes.filter((t) => t !== CONTAIN_TYPE && present.has(t))
 })
 </script>
 

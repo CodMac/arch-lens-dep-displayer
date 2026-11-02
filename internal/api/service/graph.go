@@ -36,17 +36,25 @@ func (s *Service) TopNodes(dimID, level int) ([]dto.Node, []dto.Edge, error) {
 	return mapNodes(nodes), mapEdges(edges), nil
 }
 
-// Overview 首页全景：level=1 顶层包节点 + 包间聚合边。
-func (s *Service) Overview(dimID int) ([]dto.Node, []dto.Edge, error) {
+// Overview 首页全景：顶层包节点 + 包间聚合边 + 完整包树结构。
+func (s *Service) Overview(dimID int) (dto.Overview, error) {
 	nodes, err := s.repo.OverviewNodes(dimID)
 	if err != nil {
-		return nil, nil, err
+		return dto.Overview{}, err
 	}
 	edges, err := s.repo.LevelEdges(dimID, 1)
 	if err != nil {
-		return nil, nil, err
+		return dto.Overview{}, err
 	}
-	return mapNodes(nodes), mapEdges(edges), nil
+	tree, err := s.repo.PkgTreeStructure(dimID)
+	if err != nil {
+		return dto.Overview{}, err
+	}
+	out := dto.Overview{Nodes: mapNodes(nodes), Edges: mapEdges(edges)}
+	for _, t := range tree {
+		out.Tree = append(out.Tree, dto.PkgTreeNode{QN: t.QN, Parent: t.Parent, Depth: t.Depth})
+	}
+	return out, nil
 }
 
 // Children 返回节点 qn 的下一层子节点。

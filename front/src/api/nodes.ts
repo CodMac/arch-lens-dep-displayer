@@ -1,13 +1,13 @@
 // 节点下钻/图/扇入扇出接口。
 import { get } from './client'
-import type { ChildrenResult, GraphData, SourceInfo } from '../types'
+import type { ChildrenResult, GraphData, OverviewData, SourceInfo } from '../types'
 
 /** 顶层节点（GET /top?level=N）。 */
 export function fetchTop(dimId: number, level = 1): Promise<GraphData> {
   return get<GraphData>(`/dimensions/${dimId}/top`, { level })
 }
 
-/** 子级（GET /nodes/{qn}/children）。 */
+/** 子级（GET /nodes/{qn}/children）：包→子包/叶子包类，类→成员。 */
 export function fetchChildren(dimId: number, qn: string): Promise<ChildrenResult> {
   return get<ChildrenResult>(`/dimensions/${dimId}/nodes/${encodeURIComponent(qn)}/children`)
 }
@@ -37,9 +37,9 @@ export function fetchFanoutAdj(dimId: number, qn: string): Promise<GraphData> {
   return get<GraphData>(`/dimensions/${dimId}/nodes/${encodeURIComponent(qn)}/fanout`, { depth: 1 })
 }
 
-/** 首页全景（GET /overview）：顶层包 + 包间聚合边。需求1。 */
-export function fetchOverview(dimId: number): Promise<GraphData> {
-  return get<GraphData>(`/dimensions/${dimId}/overview`)
+/** 首页全景（GET /overview）：顶层包 + 包间聚合边 + 完整包树。需求1。 */
+export function fetchOverview(dimId: number): Promise<OverviewData> {
+  return get<OverviewData>(`/dimensions/${dimId}/overview`)
 }
 
 /** 源码定位（GET /nodes/{qn}/source）。需求11。 */

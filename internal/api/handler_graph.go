@@ -58,12 +58,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	nodes, edges, err := s.svc.Overview(id)
+	ov, err := s.svc.Overview(id)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]interface{}{"nodes": nodes, "edges": edges})
+	writeJSON(w, 200, ov)
 }
 
 func (s *Server) children(w http.ResponseWriter, r *http.Request) {

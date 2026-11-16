@@ -45,6 +45,18 @@ func (s *Service) CreateSource(req dto.CreateSourceReq) (string, dto.Source, err
 	return sid, mapSource(*src), nil
 }
 
+// ReanalyzeSource 清理旧产物并重新执行完整分析链。
+func (s *Service) ReanalyzeSource(sid string) (dto.Source, error) {
+	if err := s.mgr.Reanalyze(sid); err != nil {
+		return dto.Source{}, ErrSourceNotFound
+	}
+	src := s.mgr.Get(sid)
+	if src == nil {
+		return dto.Source{}, ErrSourceNotFound
+	}
+	return mapSource(*src), nil
+}
+
 // GetSource 返回某数据源状态（含步骤进度）。
 func (s *Service) GetSource(sid string) (dto.Source, error) {
 	src := s.mgr.Get(sid)

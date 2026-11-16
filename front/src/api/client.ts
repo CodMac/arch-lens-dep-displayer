@@ -22,9 +22,3 @@ export async function put<T>(path: string, data?: unknown): Promise<T> {
   const res = await client.put<T>(path, data)
   return res.data
 }
-
-/** DELETE。 */
-export async function del<T>(path: string): Promise<T> {
-  const res = await client.delete<T>(path)
-  return res.data
-}

@@ -11,8 +11,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/CodMac/arch-lens-dep-analyer/engine"
 )
 
 // StepID 步骤标识（约定顺序）。
@@ -20,21 +23,19 @@ type StepID string
 
 const (
 	StepScan       StepID = "scan"       // 扫描源码文件
-	StepAnalyze    StepID = "analyze"    // 依赖分析（内嵌 analyzer）
-	StepExport     StepID = "export"     // 导出 JSONL
+	StepAnalyze    StepID = "analyze"    // 依赖分析 + 导出 JSONL
 	StepIngest     StepID = "ingest"     // JSONL → DuckDB
 	StepPreprocess StepID = "preprocess" // 维度/层级/预计算
 	StepActivate   StepID = "activate"   // 数据源激活（就绪）
 )
 
 // AllSteps 约定好的完整步骤序列。
-var AllSteps = []StepID{StepScan, StepAnalyze, StepExport, StepIngest, StepPreprocess, StepActivate}
+var AllSteps = []StepID{StepScan, StepAnalyze, StepIngest, StepPreprocess, StepActivate}
 
 // StepLabels 步骤中文名（前端展示用）。
 var StepLabels = map[StepID]string{
 	StepScan:       "扫描源码",
 	StepAnalyze:    "依赖分析",
-	StepExport:     "导出 JSONL",
 	StepIngest:     "导入 DuckDB",
 	StepPreprocess: "结果预处理",
 	StepActivate:   "数据源就绪",
@@ -61,7 +62,7 @@ type StepResult struct {
 }
 
 // stepFunc 步骤执行体：返回展示用 message。
-type stepFunc func(ctx context.Context, p *Pipeline) (string, error)
+type stepFunc func(ctx context.Context) (string, error)
 
 // Step 一个可执行步骤。
 type Step struct {
@@ -78,6 +79,11 @@ type Pipeline struct {
 	steps      []*Step
 	results    []StepResult
 	mu         sync.Mutex
+
+	// 扫描/分析结果在步骤间复用：scan 只走一次目录，analyze 只跑一次引擎。
+	// 串行执行，无需加锁；Resume 时为空会重新计算。
+	files []string
+	ec    *engine.EngineContext
 }
 
 // MetaFile 是 pipeline 持久化到 meta.json 的载体。
@@ -104,7 +110,6 @@ func New(sourcePath, language, wsDir string) *Pipeline {
 	p.steps = []*Step{
 		{ID: StepScan, Run: p.stepScan},
 		{ID: StepAnalyze, Run: p.stepAnalyze},
-		{ID: StepExport, Run: p.stepExport},
 		{ID: StepIngest, Run: p.stepIngest},
 		{ID: StepPreprocess, Run: p.stepPreprocess},
 		{ID: StepActivate, Run: p.stepActivate},
@@ -181,10 +186,15 @@ func (p *Pipeline) Run(ctx context.Context) error {
 // Resume 从 meta.json 恢复已完成的步骤，只跑未完成的（断点续跑）。
 func (p *Pipeline) Resume(ctx context.Context) error {
 	if mf, err := p.loadMeta(); err == nil {
+		// 按步骤 ID 匹配（步骤集合可能随版本变化，不能按索引对齐）。
+		prev := make(map[StepID]StepResult, len(mf.Steps))
+		for _, r := range mf.Steps {
+			prev[r.ID] = r
+		}
 		p.mu.Lock()
 		for i := range p.results {
-			if i < len(mf.Steps) && mf.Steps[i].ID == p.results[i].ID {
-				p.results[i] = mf.Steps[i]
+			if r, ok := prev[p.results[i].ID]; ok {
+				p.results[i] = r
 			}
 		}
 		p.mu.Unlock()
@@ -204,7 +214,7 @@ func (p *Pipeline) runStep(ctx context.Context, st *Step) error {
 	p.mu.Unlock()
 
 	start := time.Now()
-	msg, err := st.Run(ctx, p)
+	msg, err := st.Run(ctx)
 	dur := time.Since(start).Seconds()
 
 	p.mu.Lock()
@@ -247,6 +257,11 @@ func (p *Pipeline) resultByID(id StepID) *StepResult {
 		}
 	}
 	return &p.results[0]
+}
+
+// joinCSV 把字符串切片拼为逗号分隔串（维度配置落库用）。
+func joinCSV(vals []string) string {
+	return strings.Join(vals, ",")
 }
 
 // ---- meta.json 持久化 ----

@@ -1,10 +1,11 @@
-// Package db 是 DuckDB 数据访问层：连接生命周期 + 表定义 + 主表操作。
-// 职责边界：只做"数据怎么存/取"，不含任何业务语义。
+// Package db 是 DuckDB 数据访问层：只负责连接生命周期。
+// 表约束见 schema.go；全部 SQL（含 JOIN/聚合）见 repository 子包。
 package db
 
 import (
 	"database/sql"
 	"fmt"
+	"os"
 
 	_ "github.com/CodMac/arch-lens-dep-displayer/internal/duckdbthin"
 )
@@ -38,17 +39,35 @@ func Close(c *sql.DB) error {
 	return c.Close()
 }
 
-// Init 执行建表语句 + 兼容旧库迁移（新列补默认值）。
-func Init(c *sql.DB) error {
-	if _, err := c.Exec(Schema); err != nil {
-		return fmt.Errorf("store init schema: %w", err)
+// Recreate 删除旧库文件并新建空库（含表约束）。
+// 命令行工具定位：索引全量可重建，不做跨版本兼容，结构变更直接删库。
+func Recreate(dbPath string) (*sql.DB, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("recreate: 需要文件路径")
 	}
-	// 旧库（D0 及更早）的 dimensions 表无 imported_at 列：补列，回填导入时间。
-	if _, err := c.Exec(`ALTER TABLE dimensions ADD COLUMN IF NOT EXISTS imported_at TIMESTAMP`); err != nil {
-		return fmt.Errorf("store migrate dimensions: %w", err)
+	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("remove duckdb %q: %w", dbPath, err)
 	}
-	if _, err := c.Exec(`UPDATE dimensions SET imported_at = current_timestamp WHERE imported_at IS NULL`); err != nil {
-		return fmt.Errorf("store backfill imported_at: %w", err)
+	c, err := Open(dbPath)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if err := Init(c); err != nil {
+		Close(c)
+		return nil, err
+	}
+	return c, nil
+}
+
+// Ensure 打开库并校验 schema 版本；版本不符（或旧库无版本表）则删库重建。
+func Ensure(dbPath string) (*sql.DB, error) {
+	c, err := Open(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if ok := schemaCurrent(c); ok {
+		return c, nil
+	}
+	Close(c)
+	return Recreate(dbPath)
 }

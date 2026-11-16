@@ -23,6 +23,11 @@ export async function activateSource(sid: string): Promise<void> {
   await post(`/sources/${encodeURIComponent(sid)}/activate`)
 }
 
+/** 清理旧数据并重新分析。 */
+export async function reanalyzeSource(sid: string): Promise<{ sid: string; source: Source }> {
+  return post<{ sid: string; source: Source }>(`/sources/${encodeURIComponent(sid)}/reanalyze`)
+}
+
 /** 目录浏览。 */
 export async function fsList(path?: string): Promise<FsListResult> {
   return get<FsListResult>('/fs/list', { path })

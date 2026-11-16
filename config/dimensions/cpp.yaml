@@ -1,0 +1,33 @@
+# C++ 语言维度配置（docs/languages/cpp.md §1）
+language: cpp
+qn_separator: "::"
+hierarchy:
+  - level: 1
+    role: namespace
+    kinds: [NAMESPACE]
+  - level: 2
+    role: type
+    kinds: [CLASS, STRUCT, ENUM, UNION, TYPE]
+  - level: 3
+    role: member
+    kinds: [METHOD, METHOD_DECL, FUNCTION, FUNCTION_DECL, FIELD, ENUM_CONSTANT,
+            VARIABLE, SCOPE_BLOCK, LAMBDA, MACRO]
+relation_types:
+  - CALL
+  - CREATE
+  - EXTEND
+  - PARAMETER
+  - RETURN
+  - TYPE_ARG
+  - USE
+  - ASSIGN
+  - CAST
+  - THROW
+  - CAPTURE
+# 方法级边两端 kind 白名单（C++ 含自由函数/宏/声明）
+method_kinds: [METHOD, METHOD_DECL, FUNCTION, FUNCTION_DECL, LAMBDA, FIELD,
+               ENUM_CONSTANT, SCOPE_BLOCK, MACRO]
+structural_relation_types:
+  - CONTAIN
+  - IMPORT
+  - IMPL_LINK

@@ -1,6 +1,7 @@
 package dto
 
-// SccComp 强连通分量。
+// 全局统计与检索的出入参。
+
 type SccComp struct {
 	ID      int      `json:"id"`
 	Members []string `json:"members"`

@@ -1,6 +1,6 @@
 // displayer 是 arch-lens-dep-displayer 的唯一命令入口（命令名 arch-lens-dep-displayer）。
 // 启动即托管前端 + REST API；数据源（源码目录）由用户在页面上指定并触发分析。
-// 分析步骤链（scan→analyze→export→ingest→preprocess→activate）由 internal/pipeline 抽象，
+// 分析步骤链（scan→analyze→ingest→preprocess→activate）由 internal/pipeline 抽象，
 // 多数据源管理由 internal/registry 负责，API 只面向当前激活数据源。
 package main
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-displayer/internal/api/dto"
+	"github.com/CodMac/arch-lens-dep-displayer/internal/db/repository"
 	"github.com/CodMac/arch-lens-dep-displayer/internal/registry"
-	"github.com/CodMac/arch-lens-dep-displayer/internal/repository"
 )
 
 // Service API 业务层，聚合执行依赖。

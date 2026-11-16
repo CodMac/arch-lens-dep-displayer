@@ -187,6 +187,16 @@ func (r *Registry) SourceOf(sid string) (path, lang string) {
 	return s.Path, s.Language
 }
 
+// SourcePath 返回当前激活源的源码根路径（源码读盘用）。
+func (r *Registry) SourcePath() string {
+	sid := r.ActiveSID()
+	if sid == "" {
+		return ""
+	}
+	path, _ := r.SourceOf(sid)
+	return path
+}
+
 // SID 计算源码路径的稳定哈希 ID（sha1[:12]）。
 func SID(path string) string {
 	h := sha1.Sum([]byte(path))

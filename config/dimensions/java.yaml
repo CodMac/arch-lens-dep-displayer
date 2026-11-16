@@ -1,15 +1,16 @@
-# Java 语言维度配置（docs/middleware.md §3.2）
+# Java 语言维度配置（docs/languages/java.md §1）
 language: java
+qn_separator: "."
 hierarchy:
   - level: 1
-    kind: PACKAGE
-    parent_of: [PACKAGE]
+    role: namespace
+    kinds: [PACKAGE]
   - level: 2
-    kind: CLASS
-    parent_of: [CLASS, INTERFACE, ENUM]
+    role: type
+    kinds: [CLASS, INTERFACE, ENUM, ANNOTATION]
   - level: 3
-    kind: MEMBER
-    parent_of: [METHOD, FIELD]
+    role: member
+    kinds: [METHOD, FIELD, ENUM_CONSTANT, VARIABLE, SCOPE_BLOCK, LAMBDA, METHOD_REF, ANONYMOUS_CLASS]
 relation_types:
   - CALL
   - CREATE
@@ -24,3 +25,8 @@ relation_types:
   - RETURN
   - THROW
   - ANNOTATION
+# 方法级边两端 kind 白名单（G21：与 member 层不同，不含 VARIABLE/ANONYMOUS_CLASS）
+method_kinds: [METHOD, FIELD, ENUM_CONSTANT, LAMBDA, METHOD_REF, SCOPE_BLOCK]
+structural_relation_types:
+  - CONTAIN
+  - IMPORT

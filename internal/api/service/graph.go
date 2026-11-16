@@ -6,58 +6,8 @@ import (
 	"github.com/CodMac/arch-lens-dep-displayer/internal/api/dto"
 )
 
-// Dimensions 返回全部维度（含层级定义）。
-func (s *Service) Dimensions() ([]dto.Dimension, error) {
-	dims, err := s.repo.Dimensions()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]dto.Dimension, 0, len(dims))
-	for _, d := range dims {
-		lv := make([]dto.Level, 0, len(d.Levels))
-		for _, l := range d.Levels {
-			lv = append(lv, dto.Level{Level: l.Level, Kind: l.Kind, ParentOf: l.ParentOf})
-		}
-		out = append(out, dto.Dimension{ID: d.ID, Language: d.Language, Name: d.Name, Levels: lv})
-	}
-	return out, nil
-}
+// 包树下钻与单节点邻域。
 
-// TopNodes 返回指定层级顶层节点 + 该层聚合边。
-func (s *Service) TopNodes(dimID, level int) ([]dto.Node, []dto.Edge, error) {
-	nodes, err := s.repo.TopNodes(dimID, level)
-	if err != nil {
-		return nil, nil, err
-	}
-	edges, err := s.repo.LevelEdges(dimID, level)
-	if err != nil {
-		return nil, nil, err
-	}
-	return mapNodes(nodes), mapEdges(edges), nil
-}
-
-// Overview 首页全景：顶层包节点 + 包间聚合边 + 完整包树结构。
-func (s *Service) Overview(dimID int) (dto.Overview, error) {
-	nodes, err := s.repo.OverviewNodes(dimID)
-	if err != nil {
-		return dto.Overview{}, err
-	}
-	edges, err := s.repo.LevelEdges(dimID, 1)
-	if err != nil {
-		return dto.Overview{}, err
-	}
-	tree, err := s.repo.PkgTreeStructure(dimID)
-	if err != nil {
-		return dto.Overview{}, err
-	}
-	out := dto.Overview{Nodes: mapNodes(nodes), Edges: mapEdges(edges)}
-	for _, t := range tree {
-		out.Tree = append(out.Tree, dto.PkgTreeNode{QN: t.QN, Parent: t.Parent, Depth: t.Depth})
-	}
-	return out, nil
-}
-
-// Children 返回节点 qn 的下一层子节点。
 func (s *Service) Children(dimID int, qn string) ([]dto.Node, error) {
 	level, ok := s.repo.NodeLevel(dimID, qn)
 	if !ok {
@@ -106,8 +56,8 @@ func (s *Service) Graph(dimID int, qn string, typesFilter string) ([]dto.Node, [
 	return out, mapEdges(edges), nil
 }
 
-// Fan 返回节点 qn 的入/出扇 BFS 可达子图（level=2 类级边）。
-func (s *Service) Fan(dimID int, qn string, isIn bool, depth int) ([]dto.Node, []dto.Edge, error) {
+// FanOneWay 返回节点 qn 的单向扇入/扇出 BFS 子图（兼容旧 /fanin、/fanout 契约）。
+func (s *Service) FanOneWay(dimID int, qn string, isIn bool, depth int) ([]dto.Node, []dto.Edge, error) {
 	level, ok := s.repo.NodeLevel(dimID, qn)
 	if !ok {
 		return nil, nil, ErrDimNotFound
@@ -145,13 +95,4 @@ func (s *Service) Fan(dimID int, qn string, isIn bool, depth int) ([]dto.Node, [
 		out = append(out, n)
 	}
 	return out, edges, nil
-}
-
-// SourceOf 返回元素源码定位。
-func (s *Service) SourceOf(dimID int, qn string) (dto.SourceLoc, error) {
-	loc, err := s.repo.SourceOf(dimID, qn)
-	if err != nil {
-		return dto.SourceLoc{}, ErrDimNotFound
-	}
-	return dto.SourceLoc{QN: loc.QN, Path: loc.Path, StartLine: loc.StartLine, Name: loc.Name}, nil
 }

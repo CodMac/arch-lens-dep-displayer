@@ -5,23 +5,26 @@ import (
 	"fmt"
 
 	"github.com/CodMac/arch-lens-dep-displayer/internal/db"
-	"github.com/CodMac/arch-lens-dep-displayer/internal/ingest"
+	"github.com/CodMac/arch-lens-dep-displayer/internal/db/repository"
+	"github.com/CodMac/arch-lens-dep-displayer/internal/pipeline/ingest"
 )
 
 // stepIngest 导入 JSONL → DuckDB。
-func (p *Pipeline) stepIngest(ctx context.Context, pl *Pipeline) (string, error) {
-	c, err := db.Open(p.DBPath())
+func (p *Pipeline) stepIngest(ctx context.Context) (string, error) {
+	// 全量重建：删旧库文件 → 新库（含表约束），不做跨版本兼容。
+	c, err := db.Recreate(p.DBPath())
 	if err != nil {
-		return "", fmt.Errorf("open db: %w", err)
+		return "", fmt.Errorf("recreate db: %w", err)
 	}
 	defer db.Close(c)
-	if err := db.Init(c); err != nil {
-		return "", fmt.Errorf("init schema: %w", err)
-	}
-	ig := ingest.New(c, p.OutputDir())
+	ig := ingest.New(repository.Of(c), p.OutputDir())
 	elCount, relCount, err := ig.Ingest()
 	if err != nil {
 		return "", fmt.Errorf("ingest: %w", err)
 	}
-	return fmt.Sprintf("元素=%d 关系=%d", elCount, relCount), nil
+	// 端点 JOIN 落空只计数告警，不改写（决策 22：预计算层不修补解析缺陷）。
+	if ig.Dangling > 0 {
+		return fmt.Sprintf("元素=%d 关系=%d 悬空端点=%d（请抛 analyzer）", elCount, relCount, ig.Dangling), nil
+	}
+	return fmt.Sprintf("元素=%d 关系=%d 悬空端点=0", elCount, relCount), nil
 }

@@ -4,10 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/CodMac/arch-lens-dep-displayer/internal/api/service"
 	"github.com/CodMac/arch-lens-dep-displayer/internal/registry"
+	"github.com/go-chi/chi/v5"
 )
 
 // Server 聚合 handler 依赖：薄壳持有 service，业务逻辑全部下沉。
@@ -21,7 +20,6 @@ func New(mgr *registry.Registry) *Server {
 }
 
 // ---- 响应工具 ----
-
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)

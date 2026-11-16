@@ -1,7 +1,7 @@
 // 数据源 store：多数据源列表、当前激活源、创建后自动轮询分析进度。
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { fetchSources, createSource, fetchSource, activateSource } from '../api/sources'
+import { fetchSources, createSource, fetchSource, activateSource, reanalyzeSource } from '../api/sources'
 import type { Source } from '../types'
 
 const POLL_INTERVAL = 500 // ms
@@ -46,6 +46,20 @@ export const useSourceStore = defineStore('source', () => {
       throw e
     } finally {
       creating.value = false
+    }
+  }
+
+  /** 清理旧数据并重新分析；轮询到就绪后自动激活。 */
+  async function reanalyze(sid: string): Promise<void> {
+    error.value = ''
+    try {
+      await reanalyzeSource(sid)
+      await load()
+      stopPoll()
+      await pollUntilDone(sid)
+    } catch (e) {
+      error.value = String(e)
+      throw e
     }
   }
 
@@ -97,14 +111,8 @@ export const useSourceStore = defineStore('source', () => {
     await load()
   }
 
-  function reset(): void {
-    stopPoll()
-    sources.value = []
-    activeSid.value = null
-  }
-
   return {
     sources, activeSid, creating, error, activeSource,
-    load, create, activate, reset,
+    load, create, reanalyze, activate,
   }
 })

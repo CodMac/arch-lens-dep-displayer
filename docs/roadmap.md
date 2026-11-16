@@ -1,73 +1,43 @@
 # 路标（Roadmap）
 
-> 更新：2026-10-30 ｜ 说明：本文档只记录「已达成基线」与「候选方向」，候选路标均标 ⚪ 待讨论，待与需求方确认后再细化排期。
+> 更新：2026-11-16 ｜ 本文只记录「已达成基线」与「候选方向」；候选方向均标 ⚪ 待讨论，未排期。
 
 ## 0. 当前基线（已达成 ✅）
 
-产品形态已定型为**单一命令启动器 + 多数据源**：`arch-lens-dep-displayer [--listen :8080] [--out ./.arch_lens/sources]`，启动即托管前端 + REST API，用户在页面指定源码目录完成「扫描 → 依赖分析 → 导入 → 预处理 → 展示」，支持多数据源切换与断点续跑。
+产品形态已定型为**单一命令启动器 + 多数据源**：`arch-lens-dep-displayer [-listen :8080] [-out ./.arch_lens/sources] [-browser]`，启动即托管前端 + REST API。用户在页面指定源码目录，后台完成 5 步分析（scan → analyze → ingest → preprocess → activate），支持多数据源切换与断点续跑。
 
-### 里程碑 D0–D7（全部 ✅）
+### 功能
 
-| 批次 | 主题 | 内容 | 状态 |
-|---|---|---|---|
-| **D0** | 启动器骨架 | 唯一命令入口 `displayer`，托管前端 + REST API，自动开浏览器 | ✅ 完成并端到端验证 |
-| **D1** | 数据契约 | 数据元信息 `/meta`、幂等重建（重复导入清空原始表） | ✅ 完成 |
-| **D2** | 图内洞察 | 环高亮（/scc）、高扇入可辨、节点 tooltip、大图折叠/聚类聚焦 | ✅ 完成 |
-| **D3** | 聚焦分析 | 扇入/扇出 N 层、A→B 具体路径、包内部组织、类→成员→引用方链路 | ✅ 完成 |
-| **D4** | 搜索与信息 | 全局搜索定位、数据版本/统计信息栏、异常数据可见、指标排序 TOP | ✅ 完成 |
-| **D5** | 源码定位与矩阵 | 源码跳转 FilePath:Line、包间聚合边宽=依赖条数、首页带规模的全景 | ✅ 完成 |
-| **D6** | 标注收藏 + URL 记忆 | 节点收藏/备注（annotations）、hash 记忆下钻路径 | ✅ 完成 |
-| **D7** | 独立解耦 + 多数据源 | displayer 纯入口、pipeline 步骤对象化、多数据源工作区、激活切换 | ✅ 完成并端到端验证 |
+| 主题 | 内容 | 状态 |
+|---|---|---|
+| 启动器 | 唯一命令入口，托管前端 + REST API，自动开浏览器 | ✅ |
+| 数据源 | 多数据源工作区、激活切换、断点续跑、进度轮询 | ✅ |
+| 全景 | 包树气泡 + 包间聚合边 + DSM 矩阵 + 多主框下钻 | ✅ |
+| 缺陷 | 高扇入 / 高扇出 / 跨包环链路高亮 + 可调口径（服务端重算） | ✅ |
+| 影响面 | 包 / 类 / 方法三档蝴蝶图 + 节点与边详情 + 调用点展开 | ✅ |
+| 源码 | 元素树 + 行高亮 + 双节点预览 | ✅ |
+| URL 记忆 | 视图与下钻状态序列化到 hash | ✅ |
 
-### 架构重构（✅ 已完成）
+### 架构
 
 | 项 | 说明 | 状态 |
 |---|---|---|
-| internal 四层重构 | api（router→handler→service→dto）→ repository（读）＋ registry（源管理）；pipeline → ingest/index → db → duckdbthin | ✅ 完成，go build/vet 全通过 |
-| 读写路径分离 | repository 常驻读模型（func() *sql.DB 动态取连接）；ingest/index 一次性写路径（pipeline 调度） | ✅ 完成 |
-| 维度配置驱动 | config/dimensions/*.yaml（hierarchy + relation_types），ARCH_LENS_DIM 可覆盖 | ✅ 完成 |
-| 预计算换查询 | hierarchy_node/element_node/level_edges/fan/scc/metrics/annotations 表，查询零聚合 | ✅ 完成 |
-| 文档重设计 | README（单命令视角）+ docs/architecture·backend·frontend·interaction·roadmap | ✅ 完成 |
+| 分层 | `api（router→handler→service→dto）→ {registry, db/repository}`；写路径 `pipeline → {ingest, preprocess} → repository → db` | ✅ |
+| 读写路径分离 | repository 常驻读模型（`func() *sql.DB` 动态取连接）；ingest/preprocess 一次性写路径 | ✅ |
+| SQL 收敛 | 全部 SQL 在 `db/repository`（按主表分文件），pipeline 不直接操作 db | ✅ |
+| 维度配置驱动 | `config/dimensions/*.yaml`（role/kinds/qn_separator/method_kinds/structural_relation_types），`ARCH_LENS_DIM` 可覆盖 | ✅ |
+| 预计算换查询 | 原始层 + 维度层 + 预计算层（type_edge / call_site / type_fan / violation_* / cycle_* / pkg_rollup / metrics） | ✅ |
+| 多语言 | Java + C++ 口径已落地，归属字段由 analyzer 输出 | ✅ |
+| 前端 | 单入口（proto L1→L4），无 mock、无死页面 | ✅ |
 
-### 需求覆盖
+## 1. 候选方向（⚪ 待讨论）
 
-设计稿 20 件需求中 **19 件已完成**；需求 5（两版本对比）按设计稿「当前不做」明确跳过。
-
-## 1. 候选路标（⚪ 待讨论）
-
-> 以下方向仅列出名称与一句话说明，未排期、未定优先级。待与需求方逐项确认价值与边界后再进入设计。
-
-| # | 候选方向 | 一句话说明 | 状态 |
+| # | 方向 | 一句话说明 | 状态 |
 |---|---|---|---|
-| C1 | 多语言维度 | 新增 Go / C++ 等语言维度配置（hierarchy + relation_types），验证维度配置驱动可扩展性 | ⚪ 待讨论 |
-| C2 | 增量导入 | 支持基于文件变更时间/meta 的增量分析，替代当前全量重建 | ⚪ 待讨论 |
-| C3 | 两版本对比 | 原需求 5：同一项目两个版本的差异视图（被设计稿跳过，可重新评估） | ⚪ 待讨论 |
-| C4 | WebSocket 大图 | 大数据量图分块加载 / 实时推送，替代当前全量单层查询 | ⚪ 待讨论 |
-| C5 | 收藏/标注增强 | 标注标签、分组、导出，替代当前单列表 | ⚪ 待讨论 |
-| C6 | 分析结果导出 | 将依赖分析结果（图/矩阵/SCC）导出为文件（JSON/SVG/CSV） | ⚪ 待讨论 |
-
----
-
-## 附：需求清单（20 件，用户视角）
-
-> 完整需求清单及验收标准见 [interaction.md](interaction.md)。此处仅列编号与主题，用于路标回溯。
-
-1. 首页带规模的全景 — ✅
-2. 包间聚合边宽=依赖条数 — ✅
-3. 环检测高亮 + 定位 — ✅
-4. 高扇入节点可辨 — ✅
-5. 两版本对比 — ⏭ 按设计稿跳过
-6. 全局搜索 + 定位 — ✅
-7/8. 扇入/扇出 N 层 — ✅
-9. A→B 具体路径 — ✅
-10. 包内部组织 — ✅
-11. 源码跳转 FilePath:Line — ✅
-12. 类→成员→引用方链路 — ✅
-13. （预留）—
-14. 节点标注/收藏 — ✅
-15. 数据版本/统计信息栏 — ✅
-16. 异常数据可见 — ✅
-17. 指标排序列表 — ✅
-18. 节点 tooltip — ✅
-19. 大图折叠/展开/聚焦 — ✅
-20. URL 记忆下钻路径 — ✅
+| C1 | 更多语言维度 | 新增 Go / Python / Rust 维度配置与口径文档 | ⚪ 待讨论 |
+| C2 | 增量导入 | 基于文件变更时间 / sha1 的增量分析，替代全量重建 | ⚪ 待讨论 |
+| C3 | 两版本对比 | 同一项目两个版本的差异视图 | ⚪ 待讨论 |
+| C4 | 大图分块加载 | 大数据量图分块加载 / 实时推送，替代整层查询 | ⚪ 待讨论 |
+| C5 | 标注增强 | 标注标签、分组、导出；标注在重跑 pipeline 后保留 | ⚪ 待讨论 |
+| C6 | 结果导出 | 图 / 矩阵 / 环组导出为 JSON / SVG / CSV | ⚪ 待讨论 |
+| C7 | 外部依赖可见 | 另建 `external_edge` 展示三方库依赖（当前 analyzer 已过滤外部端点） | ⚪ 待讨论 |

@@ -20,12 +20,8 @@ func (r *Registry) ActiveDB() *sql.DB {
 		return nil
 	}
 	dbPath := filepath.Join(r.Workspace(sid), "lens.duckdb")
-	c, err := db.Open(dbPath)
+	c, err := db.Ensure(dbPath)
 	if err != nil {
-		return nil
-	}
-	if err := db.Init(c); err != nil {
-		db.Close(c)
 		return nil
 	}
 	r.db = c

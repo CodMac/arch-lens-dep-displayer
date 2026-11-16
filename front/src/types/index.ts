@@ -1,171 +1,22 @@
-// 与 server REST 契约对齐的类型（docs/middleware.md §6 + frontend.md §4）。
+// 与后端 REST 契约对齐的类型（数据源 / 维度 / 目录浏览）。
 
-/** 维度层级定义（如 PACKAGE→CLASS→MEMBER）。 */
+/** 维度层级定义：role ∈ namespace|type|member，kinds = 本层 kind 白名单。 */
 export interface DimensionLevel {
   level: number
-  kind: string
-  parent_of: string[]
+  role: string
+  kinds: string[]
 }
 
 /** 语言维度（GET /api/dimensions）。 */
 export interface Dimension {
   id: number
   language: string
+  qn_separator: string
+  /** 展示名（后端不下发，由 language 派生）。 */
   name: string
   levels: DimensionLevel[]
-}
-
-/** 图节点。id 为 QN。 */
-export interface GraphNode {
-  id: string
-  label: string
-  kind: string
-  size: number
-  /** 子包数（包节点，>0 表示可继续展开子包）。 */
-  children?: number
-  /** 包树深度（顶层=0）。 */
-  depth?: number
-  /** 是否叶子包（无子包，点击进入类层）。 */
-  isLeaf?: boolean
-  /** 所属父包 QN（Combo 嵌套用，仅包节点）。 */
-  parent?: string
-}
-
-/** Combo 容器（包气泡，含父子嵌套）。id 为包 QN。 */
-export interface ComboData {
-  id: string
-  label: string
-  /** 父包 QN（顶层为 ''）。 */
-  parent?: string
-  size: number
-  children: number
-  depth: number
-  collapsed?: boolean
-}
-
-/** 图边。type 为主类型（兼容旧渲染），types 为完整类型集。 */
-export interface GraphEdge {
-  source: string
-  target: string
-  type: string
-  /** 完整关系类型集（逗号聚合串已拆分）。 */
-  types: string[]
-  count: number
-}
-
-/** 搜索命中元素。 */
-export interface SearchHit {
-  qn: string
-  kind: string
-  name: string
-  path?: string
-  start_line?: number
-  node_qn?: string
-  level?: number
-}
-
-/** 搜索响应。 */
-export interface SearchResult {
-  query: string
-  hits: SearchHit[]
-}
-
-/** 未知/游离元素（meta.unknown_list 项）。 */
-export interface UnknownHit {
-  qn: string
-  kind: string
-}
-
-/** 数据元信息（meta 接口）。 */
-export interface MetaInfo {
-  imported_at?: string
-  stats?: Record<string, number>
-  isolated_nodes?: number
-  isolated_list?: string[]
-  unknown_kinds?: number
-  unknown_list?: UnknownHit[]
-  relation_types?: number
-}
-
-/** TOP 排序项（topby 接口）。 */
-export interface TopItem {
-  qn: string
-  label: string
-  kind: string
-  value: number
-}
-
-/** TOP 排序响应。 */
-export interface TopResult {
-  by: string
-  items: TopItem[]
-}
-
-/** 图数据（top/children/graph/fanin/fanout 统一返回）。 */
-export interface GraphData {
-  nodes: GraphNode[]
-  edges: GraphEdge[]
-}
-
-/** 包树结构项（overview 附带，供构建完整父链）。 */
-export interface PkgTreeNode {
-  qn: string
-  parent: string
-  depth: number
-}
-
-/** 仓库全景响应：顶层包 + 包间边 + 完整包树。 */
-export interface OverviewData {
-  nodes: GraphNode[]
-  edges: GraphEdge[]
-  tree: PkgTreeNode[]
-}
-
-/** 节点子级（children 接口）。 */
-export interface ChildrenResult {
-  nodes: GraphNode[]
-  edges: []
-}
-
-/** 各层指标（metrics 接口，kind→count）。 */
-export type MetricsMap = Record<string, number>
-
-/** SCC 强连通分量。 */
-export interface SccComponent {
-  id: number
-  members: string[]
-}
-
-/** 源码定位信息（source 接口，需求11）。 */
-export interface SourceInfo {
-  qn: string
-  path: string
-  start_line: number
-  name: string
-}
-
-/** 节点标注/收藏（annotations 接口，需求14）。 */
-export interface Annotation {
-  dimension_id: number
-  qn: string
-  starred: boolean
-  note: string
-  created_at?: string
-  updated_at?: string
-  kind?: string
-  label?: string
-}
-
-/** 标注列表响应。 */
-export interface AnnotationList {
-  items: Annotation[]
-}
-
-/** 标注 upsert 响应。 */
-export interface AnnotationUpsert {
-  qn: string
-  starred: boolean
-  note: string
+  /** 依赖关系类型白名单（维度配置下发，供切片/环类型按钮使用）。 */
+  relation_types: string[]
 }
 
 /** 分析步骤状态（pipeline 步骤快照，供前端进度轮询）。 */

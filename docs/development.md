@@ -65,9 +65,9 @@ db → duckdbthin
 
 ### 2.3 预计算层不得修补解析缺陷
 
-analyzer 的解析问题（端点悬空、默认包空归属、跨文件 static 丢弃、C++ 重开 namespace 悬空 `type_qn` 等）只能**记录并抛回 analyzer**，`ingest` / `preprocess` 不得做 QN/kind 改写或语义兜底。
+analyzer 的解析问题（端点悬空、跨文件 static 丢弃、C++ 重开 namespace 悬空 `type_qn` 等）只能**记录并抛回 analyzer**，`ingest` / `preprocess` 不得做 QN/kind 改写或语义兜底。
 
-**为什么**：补丁会把「数据源错误」固化成「派生层约定」，analyzer 修复后补丁变成二次污染。唯一的例外是查询期展示兜底（如默认包用 `COALESCE(NULLIF(namespace_qn,''),'(default)')` 参与建树），且不改写 `elements`。
+**为什么**：补丁会把「数据源错误」固化成「派生层约定」，analyzer 修复后补丁变成二次污染。唯一的例外是查询期展示兜底（如默认包用 `COALESCE(NULLIF(namespace_qn,''),'(default)')` 参与建树），且不改写 `elements`；该兜底仅服务旧产物与 C++，Java 默认包已由 analyzer 直出 `(default)`。
 
 **发现问题的途径**：所有解析缺陷都写进 `sources/{sid}/process.log`（悬空端点、kind 不匹配、游离元素、悬空归属等），只记录不修补。新增检查项时同样只读。
 
@@ -205,7 +205,7 @@ grep -rn "granularity.*'class'" front/src/
 
 | 项 | 现状 | 处理 |
 |---|---|---|
-| 默认包无归属 | 无 `package` 声明的元素 `namespace_qn` 为空 | 后端不改写，查询期 `COALESCE` 兜底展示；已抛 analyzer |
+| 默认包归属 | analyzer 已为无 `package` 声明的元素直出 `namespace_qn = "(default)"` 并注册 PACKAGE 元素 | 已修复；后端 `COALESCE` 兜底仅保留给旧产物与 C++ |
 | 跨文件同名 `static` 被丢弃 | 第二个元素消失，调用解析到第一个 | 本轮接受；analyzer 修复后主键可升级为 `(qn, kind, path)` |
 | C++ 重开 namespace 的 `type_qn` 悬空 | 少量 `type_qn` 指向不存在的元素 | 只计数告警，`element_node` 按回退链挂到 namespace；已抛 analyzer |
 | 外部依赖不可见 | analyzer 已过滤外部 IMPORT/THROW | 本轮接受；将来另建 `external_edge`，不混入 `type_edge` |

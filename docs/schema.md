@@ -2,7 +2,7 @@
 
 > 表结构的设计理由见 [development.md](development.md) §2.8。本文只做两件事：**逐表解释设计意图**、**用同一个真实案例把每张表的数据列出来**。
 >
-> 数据来源：analyzer `00df5f3` 对 `cleanarch-backend` 的**新一次重跑**（933 文件 / 35,705 元素 / 100,312 关系）。案例数值已按新产物校准；`.arch_lens/sources/7af6d6e8b785/output` 仍是 11-11 旧产物，需重新 analyze + ingest 才能与本文对齐。
+> 数据来源：analyzer `76745eb` 对 `cleanarch-backend` 的**新一次重跑**（933 文件 / 35,706 元素 / 100,321 关系）。相对 `00df5f3` 的增量仅为默认包：+1 `(default)` PACKAGE 元素与 +9 条 `(default) → 文件` CONTAIN 关系。`.arch_lens/sources/7af6d6e8b785/output` 仍是 11-11 旧产物，需重新 analyze + ingest 才能与本文对齐。
 
 ---
 
@@ -82,7 +82,7 @@ CREATE TABLE elements (
 | **主键 `(qn, kind)`** | C++ 声明/定义共享 QN（e2e 样本 1,417 元素中 76 个重复，72 个 decl+def 对），`qn` 单列不唯一。Java 实测 `(qn,kind)` 0 重复 |
 | `extra JSON` | 35,443 条 / 6.41 MB（平均 188 B）；含 `java.method.is_constructor`(11,131)、`java.variable.raw_type`(11,226)、`java.method.return_type`(7,528)、`java.method.parameters`(6,439)、`java.lombok.annotation_type`(7,518) |
 | `doc` / `comment` | 3,271 / 1,264 条，共 0.28 MB；L3 源码面板用 |
-| 三个归属列 | 全部来自 JSONL 原样写入。**唯一例外**：`namespace_qn` 为空时补 `(default)`（G17） |
+| 三个归属列 | 全部来自 JSONL 原样写入。**唯一例外**：`namespace_qn` 为空时补 `(default)`（G17），仅用于兼容旧产物与 C++ 等「空 `namespace_qn` 是正常语义」的语言；Java 默认包已由 analyzer 直出 `(default)` |
 | `is_sugar` vs `is_impl_detail` | 前者 = 编译器隐式生成（Lombok/默认构造器）；后者 = 源码语法结构（LAMBDA/ANON/MREF/BLOCK）。**两者正交**，不能合并 |
 | `path` | 相对路径，与 `manifest.root_path` 拼绝对路径读盘（源码元素树也直接查本表） |
 
@@ -104,7 +104,7 @@ CREATE TABLE relations (
 
 | 设计点 | 说明 |
 |---|---|
-| **端点 kind 必须存** | C++ `IMPL_LINK` 两端 QN 完全相同（`FUNCTION` → `FUNCTION_DECL`），只能靠 Kind 区分。实测 Java 100,312 条关系两端 100% 带 `Kind`，无需 analyzer 改动 |
+| **端点 kind 必须存** | C++ `IMPL_LINK` 两端 QN 完全相同（`FUNCTION` → `FUNCTION_DECL`），只能靠 Kind 区分。实测 Java 100,321 条关系两端 100% 带 `Kind`，无需 analyzer 改动 |
 | 无主键 | 同一 `(src,tgt,type,line)` 可重复（实测 1,887 组），去重是**预计算层的事**，原始层保真 |
 | `path` 必须存 | 旧表只存 `start_line`，导致调用点明细无法还原（G1）。实测 63,080 条有 `path`+`line` |
 | `raw_text` 存 `Mores` JSON | 调用点展开时展示 `AviatorUtil.getVariables(rule)` 这类原文 |
@@ -197,7 +197,7 @@ CREATE TABLE element_node (
 |---|---|
 | 类型自身也有一行 | `(AviatorUtil, CLASS, 1, AviatorUtil, 2)`，否则 `ChildNodes` 查不到类型 |
 | **挂载回退链** | `node_qn = type_qn` → 若空则 `namespace_qn` → 若空则文件节点 |
-| 为什么需要回退 | C++ 的 `FUNCTION`/`FUNCTION_DECL`/`MACRO`/`TYPE`/全局 `VARIABLE`/`NAMESPACE` 的 `type_qn` 为空；Java 默认包 9 个类型 `namespace_qn` 为空 |
+| 为什么需要回退 | C++ 的 `FUNCTION`/`FUNCTION_DECL`/`MACRO`/`TYPE`/全局 `VARIABLE`/`NAMESPACE` 的 `type_qn` 为空；Java 默认包元素 `namespace_qn` 已由 analyzer 直出 `(default)`，回退链只用于旧产物 |
 | 成员指向**宿主类型** | 有 `type_qn` 时用它，不是 `enclosing_qn`。lambda 的 `enclosing_qn` 是块，但归属仍是宿主类型 |
 | `element_kind` 新增 | C++ decl/def 共享 QN，只按 `element_qn` 关联会产生歧义 |
 
@@ -225,7 +225,7 @@ CREATE TABLE type_edge (
 | `edge_count` 保留**加权值** | 边详情要展示「调了多少次」，不能去重 |
 | `site_count` 是阈值口径 | `type_fan.fan_*_sites` 直接取它，不必回扫原始 `relations`（P7）。去重键 = 有行号用 `path:line`，无行号用 `source_qn`（否则 6 种无行号关系会被压成 1 点，582 → 654） |
 | `types` 用原生数组 | 支持 `list_has_any(types, ['CALL'])` 下推（G7）。但 `duckdbthin` 读回是 `"[call, use]"` 字符串，repository 要解析 |
-| `cross_pkg` | 建表时算好，避免每次 JOIN `elements` 比 `namespace_qn`；**必须在默认包兜底（P2）之后算**，否则约 40 个假跨包对 |
+| `cross_pkg` | 建表时算好，避免每次 JOIN `elements` 比 `namespace_qn`；**必须在默认包兜底（P2）之后算**，否则旧产物的空 `namespace_qn` 会产生约 40 个假跨包对 |
 | 主键 | 防重跑重复插入；重跑前仍建议 `DELETE WHERE dimension_id=?` |
 
 **点开类型边后，成员调用详情怎么查**（不能直接查 `type_edge`，它已丢弃成员与行号）：
@@ -432,7 +432,7 @@ CREATE TABLE metrics (
 | `type_edge_total` | `COUNT(*) FROM type_edge` |
 | `method_edge_total` | `COUNT(*) FROM method_edge` |
 | `cycle_group_total` | `COUNT(*) FROM cycle_group` |
-| `default_pkg_element_total` | 挂 `(default)` 的元素数（295，M4） |
+| `default_pkg_element_total` | `namespace_qn` 为空或 `= '(default)'` 的元素数（295，M4）。analyzer 修复后 Java 默认包元素直出 `(default)`，空值分支仅兼容旧产物与 C++ |
 
 ---
 
@@ -609,15 +609,15 @@ CREATE TABLE metrics (
 | 1 | `com.huawei.tenet` | 925 | 1 | 79 | 99 | 0 |
 | 1 | `com` | 925 | 1 | 79 | 99 | 0 |
 
-> `subtree_type_count` 按**顶层类型**（`type_qn = qn`）计数，嵌套类已归并到宿主类型，因此根 `com` 是 925 而非 1,059。`common` / `tenet` / `com` 的 `direct_type_count=0`（只有子包无直接类型）。默认包的 9 个类型不在任何 PACKAGE 下，需挂 `(default)` 后根节点才会变成 934。
+> `subtree_type_count` 按**顶层类型**（`type_qn = qn`）计数，嵌套类已归并到宿主类型，因此根 `com` 是 925 而非 1,059。`common` / `tenet` / `com` 的 `direct_type_count=0`（只有子包无直接类型）。默认包的 9 个类型挂在独立的 `(default)` 节点下（`subtree_type_count = direct_type_count = 9`），不与 `com` 合并，因此根仍为 925。
 
 ### 5.15 `metrics`
 
 | dimension_id | kind | count |
 |---|---|---|
-| 1 | element_total | 35,705 |
-| 1 | relation_total | 100,312 |
-| 1 | package_total | 252 |
+| 1 | element_total | 35,706 |
+| 1 | relation_total | 100,321 |
+| 1 | package_total | 253 |
 | 1 | type_total | 934 |
 | 1 | type_element_total | 1,059 |
 | 1 | source_file_total | 933 |
@@ -643,10 +643,10 @@ CREATE TABLE metrics (
 
 | qn | kind | path | namespace_qn | enclosing_qn | type_qn |
 |---|---|---|---|---|---|
-| `OperationDataTest` | CLASS | `cleanarch-backend-admin/src/test/java/OperationDataTest.java` | **空 → `(default)`** | 空 | `OperationDataTest` |
-| `OperationDataTest.sdf` | FIELD | 同上 | 空 → `(default)` | `OperationDataTest` | `OperationDataTest` |
+| `OperationDataTest` | CLASS | `cleanarch-backend-admin/src/test/java/OperationDataTest.java` | `(default)` | 空 | `OperationDataTest` |
+| `OperationDataTest.sdf` | FIELD | 同上 | `(default)` | `OperationDataTest` | `OperationDataTest` |
 
-> 9 个测试文件共 295 个元素。不兜底则既不在 `hierarchy_node` 也不在 `pkg_rollup`，会从包树和 DSM 中**静默消失**（影响 40 个类型级边对）。
+> 9 个测试文件共 295 个元素。analyzer 现已直出 `namespace_qn = "(default)"` 并注册 `(default)` PACKAGE 元素，这些元素自然进入 `hierarchy_node` 与 `pkg_rollup`；后端 `COALESCE` 兜底仅用于旧产物与 C++。
 
 ### 6.3 C++ 声明/定义共享 QN（`(qn, kind)` 主键的直接证据）
 
@@ -693,17 +693,17 @@ CREATE TABLE metrics (
 | **`qn` 不能单独做主键** | C++ 声明/定义共享 QN（e2e 样本 1,417 元素中 76 个重复，72 个 decl+def 对）。必须用 `(qn, kind)` |
 | **`relations` 必须带端点 kind** | C++ `IMPL_LINK` 两端 QN 相同；实测 Java/C++ 关系端点 100% 带 `Kind`，无需 analyzer 改动 |
 | **跨文件 static 同名会被丢弃** | 两文件各写 `static int helper(int)` → 第二个元素消失，调用被错误解析到第一个。本轮**接受**；升级路径 = analyzer 修复后改 `(qn,kind,path)` |
-| **`element_node` 挂载回退链** | `type_qn` → `namespace_qn` → 文件节点。C++ 的 `FUNCTION`/`MACRO`/`TYPE` 和 Java 默认包都依赖这条链 |
+| **`element_node` 挂载回退链** | `type_qn` → `namespace_qn` → 文件节点。C++ 的 `FUNCTION`/`MACRO`/`TYPE` 依赖这条链；Java 默认包元素已有 `namespace_qn = "(default)"`，走正常路径 |
 | **`type_edge` / `type_fan` 主键** | 已补复合主键；重跑 preprocess 前仍建议 `DELETE WHERE dimension_id=?` |
 | **`method_edge` 是 VIEW 不是表** | 不要对它 `INSERT` / `DELETE`；派生口径变化只改 VIEW 定义。`db.Init` 在空库上直接建 VIEW；旧库由 `db.Ensure` 按 `schema_meta.version` 删库重建 |
-| **`cross_pkg` 必须在默认包兜底之后算** | 否则空 `namespace_qn` 会产生约 40 个假跨包对（P2） |
+| **`cross_pkg` 必须在默认包兜底之后算** | 否则旧产物的空 `namespace_qn` 会产生约 40 个假跨包对（P2）；Java 新产物已直出 `(default)` |
 | **`types` 数组读回是字符串** | `duckdbthin` 返回 `"[call, use]"`，repository 要 `strings.Trim("[]")` + `Split(", ")` |
 | **`element_node` 的类自身行** | 漏了会导致「点开包看不到类」——类必须同时有 `hierarchy_node`（level=2）和 `element_node`（level=2） |
 | **`elements.path` 是安全边界** | 只能来自本表；请求传 `qn`，服务端查 `path` 后拼 `manifest.root_path` 并校验 `filepath.Rel` |
-| **默认包 9 个类型** | 若不做 `(default)` 兜底，会从包树和 DSM 中静默消失 |
+| **默认包 9 个类型** | analyzer 直出 `(default)` 后自然进入包树与 DSM；若处理旧产物，不做 `(default)` 兜底会从包树和 DSM 中静默消失 |
 | **`violation_hit.value` 的语义** | 它存的是「命中时用的那个值」——`dedupe_same_site=true` 时是 `fan_in_sites`，不是加权值。前端要展示加权值请回查 `type_fan.fan_in` |
 | **端点完整性由 analyzer 保证** | `633c58f` 后 18,490 个 `xxx()` 端点全部可解析、外部端点 0 条；后端**不做补全**，JOIN 落空即丢弃 + 告警 |
-| **后端不修补解析缺陷** | 默认包空归属、跨文件 static 丢弃、C++ 重开 namespace 悬空 `type_qn` 等，一律记录并抛 analyzer（见 [development.md](development.md) §2.3） |
+| **后端不修补解析缺陷** | 跨文件 static 丢弃、C++ 重开 namespace 悬空 `type_qn` 等，一律记录并抛 analyzer（见 [development.md](development.md) §2.3）；默认包归属已由 analyzer 修复 |
 | **`IMPL_LINK` 混入依赖边** | 会造出 `FUNCTION → FUNCTION_DECL` 的重复边；必须归入 `structural_relation_types` |
 | **717/3,549 类型对无调用点明细** | 纯类型引用（TYPE_ARG 366 / PARAMETER 232 / RETURN 118 / IMPLEMENT 44 / EXTEND 41 / ANNOTATION 31 / THROW 2），边详情要显示「仅类型引用」而非空列表（P1） |
 | **`cycle_edge` 与 `call_site` 有 JOIN 断点** | 前者是类型 QN，后者是成员 QN；必须经 `elements.type_qn` 双向中转，不能直接 JOIN（P10） |

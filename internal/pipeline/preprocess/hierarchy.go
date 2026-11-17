@@ -7,8 +7,10 @@ import (
 	"github.com/CodMac/arch-lens-dep-displayer/internal/db/repository"
 )
 
-// DefaultNamespace 默认包虚拟节点 QN（G17 待 analyzer 修复）。
-// 只在派生层（hierarchy_node）出现，不改写 elements.namespace_qn。
+// DefaultNamespace 默认包 QN。
+// analyzer 已为无 package 声明的元素输出 NamespaceQN="(default)" 并注册 PACKAGE 元素，
+// 此处保留同值常量用于：C++ 等「namespace_qn 为空是正常语义」的语言做展示兜底，
+// 以及兼容旧数据（analyzer 修复前导出的 namespace_qn 为空）。
 const DefaultNamespace = "(default)"
 
 // buildHierarchy 依据维度配置构建层级树并写回 hierarchy_node / element_node。
@@ -52,7 +54,9 @@ func (ix *Preprocessor) buildHierarchy() error {
 			nsSet[e.NamespaceQN] = true
 		}
 	}
-	// 默认包：存在 namespace_qn 为空的非文件/非命名空间元素 → 挂虚拟节点。
+	// 默认包兜底：存在 namespace_qn 为空的非文件/非命名空间元素 → 挂虚拟节点。
+	// analyzer 修复后 Java 默认包元素已自带 NamespaceQN="(default)"（走上面的分支）；
+	// 此分支用于兼容旧数据，以及 C++ 等「空 namespace_qn 是正常语义」的语言。
 	for _, e := range all {
 		if e.NamespaceQN == "" && !nsKinds[e.Kind] && e.Kind != "FILE" {
 			nsSet[DefaultNamespace] = true

@@ -1,7 +1,7 @@
 # Java 语言口径
 
 > 本文定义 Java 在**原始层 → 维度层 → 预计算层**的语言特化规则。通用规则见 [development.md](../development.md)，表结构见 [schema.md](../schema.md)。
-> 数据基线：analyzer `00df5f3`，`cleanarch-backend` 933 文件 / 35,705 元素 / 100,312 关系（2026-11-13）。
+> 数据基线：analyzer `76745eb`，`cleanarch-backend` 933 文件 / 35,706 元素 / 100,321 关系（2026-11-17）。
 
 ---
 
@@ -23,7 +23,7 @@ structural_relation_types: [CONTAIN, IMPORT]
 | 项 | Java 取值 | 说明 |
 |---|---|---|
 | 层级数 | 3 | package → type → member |
-| `role=namespace` | `PACKAGE` | 252 个；无 package 声明的文件 `NamespaceQN` 为空（见 §6） |
+| `role=namespace` | `PACKAGE` | 253 个；含默认包哨兵 `(default)`（见 §6） |
 | `role=type` | `CLASS` / `INTERFACE` / `ENUM` / `ANNOTATION` | 1,059 个元素；去重宿主 `type_qn` 934 个（嵌套类归并） |
 | `role=member` | 8 类 | 含 `ANONYMOUS_CLASS`（36 个）与 `METHOD_REF`（423 个），旧配置漏配 |
 | 结构关系 | `CONTAIN` / `IMPORT` | 不参与依赖边 |
@@ -35,7 +35,7 @@ structural_relation_types: [CONTAIN, IMPORT]
 
 ## 2. `relations.type` 取值（Java 全集，15 种）
 
-实测 100,312 条关系按类型与端点 kind 分布：
+实测 100,321 条关系按类型与端点 kind 分布（下表按 `00df5f3` 的 100,312 条统计；默认包修复后仅 `CONTAIN` +9，即 `(default) → 9 个默认包文件`，其余类型不变）：
 
 | `type` | 条数 | 源 kind（Top） | 目标 kind（Top） | 有 `Location` | 进入依赖边 |
 |---|---|---|---|---|---|
@@ -95,7 +95,7 @@ cross_pkg = COALESCE(NULLIF(s.namespace_qn,''),'(default)')
          <> COALESCE(NULLIF(t.namespace_qn,''),'(default)')
 ```
 
-实测 **3,203 / 3,549** 对跨包。必须用 `COALESCE` 兜底默认包，否则产生约 40 个假跨包对（§6）。
+实测 **3,203 / 3,549** 对跨包。analyzer 现已为默认包元素直出 `namespace_qn = "(default)"`，`COALESCE` 仅用于兼容旧产物与 C++ 等「空 `namespace_qn` 是正常语义」的语言；去掉它会让旧产物产生约 40 个假跨包对（§6）。
 
 ### 3.4 点开类型边的成员明细
 
@@ -187,7 +187,7 @@ fan_in_sites(q)    = Σ site_count
 
 | # | 缺陷 | 实测 | 期望 |
 |---|---|---|---|
-| J1 | **默认包无归属** | 9 个测试文件（`OperationDataTest` 等）无 `package` 声明 → 295 元素 `NamespaceQN` 为空，且不在任何 PACKAGE 的 CONTAIN 下 | analyzer 产出 `NamespaceQN = "(default)"` 或按文件目录推导；后端当前只在查询期 `COALESCE` 兜底 |
+| J1 | ~~**默认包无归属**~~ **已修复** | 9 个测试文件（`OperationDataTest` 等）无 `package` 声明 → analyzer 现直出 `NamespaceQN = "(default)"` 并注册 `(default)` PACKAGE 元素，295 元素全部有归属 | 已由 analyzer 修复；后端 `COALESCE` 兜底仅保留给旧产物与 C++ |
 | J2 | 跨文件同名 `static` 被丢弃 | 两文件各写 `static int helper(int)` → 第二个元素消失，调用被错误解析到第一个 | analyzer 修复后主键可升级为 `(qn, kind, path)` |
 | J3 | 文本块污染 `NamespaceQN` | Java 15 `"""..."""` 作为调用接收者时，目标 QN 与 `NamespaceQN` 取整段字面量 | analyzer 侧过滤 |
 
@@ -241,8 +241,8 @@ fan_in_sites(q)    = Σ site_count
 
 | 指标 | 期望值 |
 |---|---|
-| 元素 / 关系 | 35,705 / 100,312 |
-| 包 / 类型元素 / 宿主类型 | 252 / 1,059 / 934 |
+| 元素 / 关系 | 35,706 / 100,321 |
+| 包 / 类型元素 / 宿主类型 | 253 / 1,059 / 934 |
 | `type_edge` | 3,549 对 / 18,022 条 / 15,269 引用点（跨包 3,203） |
 | `call_site` | 58,083 行（6,337 行无行号） |
 | `method_edge` | 17,314 对 / 22,530 条 |

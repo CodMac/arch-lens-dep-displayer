@@ -18,7 +18,7 @@ func (r *Repository) BuildMetrics(dimID, nsLevel, typeLevel int, typeKinds []str
 		UNION ALL SELECT ?, 'method_edge_total', COUNT(*) FROM method_edge WHERE dimension_id = ?
 		UNION ALL SELECT ?, 'cycle_group_total', COUNT(*) FROM cycle_group WHERE dimension_id = ?
 		UNION ALL SELECT ?, 'default_pkg_element_total', COUNT(*) FROM elements
-			WHERE COALESCE(namespace_qn,'') = '' AND kind NOT IN ('FILE','PACKAGE')`,
+			WHERE COALESCE(namespace_qn,'') IN ('', '(default)') AND kind NOT IN ('FILE','PACKAGE')`,
 		sqlStringList(typeKinds), typeLevel, nsLevel)
 	_, err := r.db().Exec(q,
 		dimID,        // element_total

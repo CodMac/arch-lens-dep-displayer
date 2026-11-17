@@ -68,7 +68,8 @@ func (ix *Preprocessor) reportAnomalies(log *proclog.Logger) {
 		log.Summary("preprocess:orphan-node", "total", total, "emitted", len(list))
 	}
 
-	// 5. 默认包元素：namespace_qn 为空（已知 analyzer 缺陷，只在查询期兜底）。
+	// 5. 默认包元素：namespace_qn 为空。
+	// Java 已由 analyzer 输出 "(default)"，此处命中即为旧数据或 C++ 等空值为正常语义的语言。
 	nsLevel := ix.dim.LevelOfRole(RoleNamespace)
 	nsKinds := ix.dim.KindsOfLevel(nsLevel)
 	kindList := make([]string, 0, len(nsKinds))

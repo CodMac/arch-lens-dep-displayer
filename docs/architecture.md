@@ -205,7 +205,7 @@ scan → analyze（分析 + 导出 JSONL）→ ingest → preprocess → activat
 | preprocess | 游离元素（无 `element_node`）、游离类型（`fan_in=fan_out=0`） | WARN |
 | preprocess | 悬空归属（`namespace_qn`/`enclosing_qn`/`type_qn` 指向不存在元素） | WARN |
 | preprocess | 层级孤儿（`parent_qn` 不存在）、未知关系类型 | WARN |
-| preprocess | 默认包元素（`namespace_qn` 为空） | WARN |
+| preprocess | 默认包元素（`namespace_qn` 为空；Java 已由 analyzer 直出 `(default)`，命中即为旧产物或 C++） | WARN |
 | preprocess | 派生表行数为 0（hierarchy_node/element_node/type_edge/type_fan/metrics） | ERROR |
 | preprocess | 各派生表行数、环组数 | INFO / SUMMARY |
 

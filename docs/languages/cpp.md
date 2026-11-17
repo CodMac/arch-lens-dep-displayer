@@ -101,11 +101,11 @@ C++ 的无行号关系占比更高（`PARAMETER` 31/31、`RETURN` 21/21、`TYPE_
 ### 3.3 `cross_pkg`
 
 ```
-cross_pkg = COALESCE(NULLIF(s.namespace_qn,''),'(global)')
-         <> COALESCE(NULLIF(t.namespace_qn,''),'(global)')
+cross_pkg = COALESCE(NULLIF(s.namespace_qn,''),'(default)')
+         <> COALESCE(NULLIF(t.namespace_qn,''),'(default)')
 ```
 
-> C++ 用 `(global)` 而非 `(default)`：全局作用域符号的 `namespace_qn` 为空是**正常语义**（不是缺陷），因此这里只是展示兜底，不需要抛给 analyzer。
+> 兜底值统一用 `(default)`（`type_edge.go` 里是硬编码的单一表达式，不按语言区分）。语义上 C++ 的全局作用域是**正常语义**（不是缺陷），因此这里只是展示兜底，不需要抛给 analyzer；Java 默认包则由 analyzer 直出 `(default)`，不依赖此兜底。
 
 ---
 

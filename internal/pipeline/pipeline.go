@@ -2,7 +2,7 @@
 // 每个步骤是独立的 Step 对象，串行执行并记录耗时/状态；状态持久化到 meta.json，
 // 支持前端轮询进度与断点续跑（Resume）。
 //
-// 步骤顺序（约定）：scan → analyze → export → ingest → preprocess → activate。
+// 步骤顺序（约定）：scan → analyze（含导出）→ ingest → preprocess → activate。
 package pipeline
 
 import (
@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/CodMac/arch-lens-dep-analyer/engine"
+
+	"github.com/CodMac/arch-lens-dep-displayer/internal/pipeline/proclog"
 )
 
 // StepID 步骤标识（约定顺序）。
@@ -84,6 +86,9 @@ type Pipeline struct {
 	// 串行执行，无需加锁；Resume 时为空会重新计算。
 	files []string
 	ec    *engine.EngineContext
+
+	// log 过程日志（sources/{sid}/process.log）：记录分析/导入/预处理的过程与异常。
+	log *proclog.Logger
 }
 
 // MetaFile 是 pipeline 持久化到 meta.json 的载体。
@@ -95,14 +100,16 @@ type MetaFile struct {
 	CreatedAt  string       `json:"created_at"`
 }
 
-// New 按约定顺序构造 pipeline（6 个 Step）。
+// New 按约定顺序构造 pipeline（5 个 Step）。
 // wsDir 为该数据源的工作目录（sources/{sid}），内含 output/ 与 lens.duckdb。
+// 同时打开（截断重建）process.log。
 func New(sourcePath, language, wsDir string) *Pipeline {
 	p := &Pipeline{
 		sourcePath: sourcePath,
 		language:   language,
 		workspace:  wsDir,
 		results:    make([]StepResult, 0, len(AllSteps)),
+		log:        proclog.Open(filepath.Join(wsDir, "process.log")),
 	}
 	for _, id := range AllSteps {
 		p.results = append(p.results, StepResult{ID: id, Label: StepLabels[id], Status: StatusPending})
@@ -168,18 +175,27 @@ func (p *Pipeline) OutputDir() string {
 	return filepath.Join(p.workspace, "output")
 }
 
+// Log 返回过程日志（供各步骤写明细）。
+func (p *Pipeline) Log() *proclog.Logger { return p.log }
+
 // Run 串行执行全部步骤。可被 Resume 复用（跳过已 done 的步骤）。
 func (p *Pipeline) Run(ctx context.Context) error {
+	defer p.log.Close()
+	p.log.Info("run", "start", "root", p.sourcePath, "language", p.language)
+	start := time.Now()
 	for _, st := range p.steps {
 		select {
 		case <-ctx.Done():
+			p.log.Error("run", "", "state", "canceled", "step", string(st.ID))
 			return ctx.Err()
 		default:
 		}
 		if err := p.runStep(ctx, st); err != nil {
+			p.log.Error("run", "", "state", "failed", "step", string(st.ID), "err", err.Error())
 			return err
 		}
 	}
+	p.log.Summary("run", "status", "ready", "duration", fmt.Sprintf("%.2fs", time.Since(start).Seconds()))
 	return nil
 }
 
@@ -213,6 +229,7 @@ func (p *Pipeline) runStep(ctx context.Context, st *Step) error {
 	p.persistLocked()
 	p.mu.Unlock()
 
+	p.log.Info(string(st.ID), "", "state", "start")
 	start := time.Now()
 	msg, err := st.Run(ctx)
 	dur := time.Since(start).Seconds()
@@ -222,12 +239,14 @@ func (p *Pipeline) runStep(ctx context.Context, st *Step) error {
 		p.setStatus(st.ID, StatusFailed, err.Error())
 		p.persistLocked()
 		p.mu.Unlock()
+		p.log.Error(string(st.ID), "", "state", "failed", "duration", fmt.Sprintf("%.2fs", dur), "err", err.Error())
 		return fmt.Errorf("step %s: %w", st.ID, err)
 	}
 	p.setStatus(st.ID, StatusDone, msg)
 	p.setDuration(st.ID, dur)
 	p.persistLocked()
 	p.mu.Unlock()
+	p.log.Info(string(st.ID), "", "state", "done", "duration", fmt.Sprintf("%.2fs", dur), "message", msg)
 	return nil
 }
 

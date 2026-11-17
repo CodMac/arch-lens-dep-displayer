@@ -93,6 +93,13 @@ type CycleHop struct {
 	Sites  int
 }
 
+// CycleGroupCount 返回某维度的环组数。
+func (r *Repository) CycleGroupCount(dimID int) (int, error) {
+	var n int
+	err := r.db().QueryRow(`SELECT COUNT(*) FROM cycle_group WHERE dimension_id = ?`, dimID).Scan(&n)
+	return n, err
+}
+
 func (r *Repository) CycleGroups(dimID int) ([]CycleGroup, error) {
 	rows, err := r.db().Query(`SELECT group_id, member_count, pkg_count FROM cycle_group
 		WHERE dimension_id = ? ORDER BY group_id`, dimID)

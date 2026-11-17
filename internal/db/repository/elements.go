@@ -74,6 +74,108 @@ func (r *Repository) HierarchyElements() ([]HierarchyElement, error) {
 	return out, rows.Err()
 }
 
+// ElementRef 元素引用（日志明细用）。
+type ElementRef struct {
+	QN   string
+	Kind string
+}
+
+// UnattachedElements 未纳入维度层级的元素（无 element_node 行），返回总数与明细。
+func (r *Repository) UnattachedElements(dimID, limit int) (int, []ElementRef, error) {
+	const cond = `e.qn <> '' AND NOT EXISTS (SELECT 1 FROM element_node en WHERE en.element_qn = e.qn AND en.dimension_id = ?)`
+	var total int
+	if err := r.db().QueryRow(`SELECT COUNT(*) FROM elements e WHERE `+cond, dimID).Scan(&total); err != nil {
+		return 0, nil, err
+	}
+	rows, err := r.db().Query(`SELECT e.qn, e.kind FROM elements e WHERE `+cond+` ORDER BY e.kind, e.qn LIMIT ?`, dimID, limit)
+	if err != nil {
+		return total, nil, err
+	}
+	defer rows.Close()
+	var out []ElementRef
+	for rows.Next() {
+		var e ElementRef
+		if err := rows.Scan(&e.QN, &e.Kind); err != nil {
+			return total, out, err
+		}
+		out = append(out, e)
+	}
+	return total, out, rows.Err()
+}
+
+// DanglingOwnership 归属字段指向不存在元素的情况，返回总数与明细。
+type OwnershipIssue struct {
+	QN    string
+	Kind  string
+	Field string // namespace_qn | enclosing_qn | type_qn
+	Value string
+}
+
+// DanglingOwnership 检查 namespace_qn / enclosing_qn / type_qn 是否指向存在的元素。
+func (r *Repository) DanglingOwnership(limit int) (int, []OwnershipIssue, error) {
+	fields := []string{"namespace_qn", "enclosing_qn", "type_qn"}
+	var total int
+	for _, f := range fields {
+		q := `SELECT COUNT(*) FROM elements e WHERE COALESCE(e.` + f + `,'') <> ''
+			AND NOT EXISTS (SELECT 1 FROM elements p WHERE p.qn = e.` + f + `)`
+		var n int
+		if err := r.db().QueryRow(q).Scan(&n); err != nil {
+			return 0, nil, err
+		}
+		total += n
+	}
+	var out []OwnershipIssue
+	for _, f := range fields {
+		q := `SELECT e.qn, e.kind, e.` + f + ` FROM elements e WHERE COALESCE(e.` + f + `,'') <> ''
+			AND NOT EXISTS (SELECT 1 FROM elements p WHERE p.qn = e.` + f + `) LIMIT ?`
+		rows, err := r.db().Query(q, limit-len(out))
+		if err != nil {
+			return total, out, err
+		}
+		for rows.Next() {
+			var o OwnershipIssue
+			if err := rows.Scan(&o.QN, &o.Kind, &o.Value); err != nil {
+				rows.Close()
+				return total, out, err
+			}
+			o.Field = f
+			out = append(out, o)
+		}
+		rows.Close()
+		if len(out) >= limit {
+			break
+		}
+	}
+	return total, out, nil
+}
+
+// ElementsMissingNamespace 无 namespace_qn 的非文件/非命名空间元素（默认包），返回总数与明细。
+func (r *Repository) ElementsMissingNamespace(nsKinds []string, limit int) (int, []ElementRef, error) {
+	exclude := `('FILE')`
+	if len(nsKinds) > 0 {
+		exclude = `('FILE',` + sqlStringList(nsKinds) + `)`
+	}
+	cond := `COALESCE(e.namespace_qn,'') = '' AND e.kind NOT IN ` + exclude
+	var total int
+	if err := r.db().QueryRow(`SELECT COUNT(*) FROM elements e WHERE ` + cond).Scan(&total); err != nil {
+		return 0, nil, err
+	}
+	rows, err := r.db().Query(`SELECT e.qn, e.kind FROM elements e WHERE `+cond+` ORDER BY e.kind, e.qn LIMIT ?`, limit)
+	if err != nil {
+		return total, nil, err
+	}
+	defer rows.Close()
+	var out []ElementRef
+	for rows.Next() {
+		var e ElementRef
+		if err := rows.Scan(&e.QN, &e.Kind); err != nil {
+			return total, out, err
+		}
+		out = append(out, e)
+	}
+	return total, out, rows.Err()
+}
+
 // ElementNamespaces 返回 qn → namespace_qn（环组跨包判定用）。
 func (r *Repository) ElementNamespaces() (map[string]string, error) {
 	rows, err := r.db().Query(`SELECT qn, COALESCE(namespace_qn,'') FROM elements`)

@@ -83,6 +83,7 @@ db → duckdbthin
 ```
 .arch_lens/sources/{sid}/
 ├── meta.json                 # pipeline 状态（断点续跑 + 前端进度轮询）
+├── process.log               # 分析过程日志（每次分析截断重写；见 §5.4）
 ├── output/                   # 不可变分析产物（语言无关）
 │   ├── manifest.json         # 版本/语言/统计/哈希/分隔符/root_path
 │   ├── element.jsonl         # 元素
@@ -186,7 +187,36 @@ scan → analyze（分析 + 导出 JSONL）→ ingest → preprocess → activat
 
 **发生点在类型（类）级**：扇入/扇出/环都在 `type_qn` 归一化后判定，包层只做子树向上汇聚。
 
-### 5.4 源码按需读盘
+### 5.4 过程日志与异常告警（process.log）
+
+每个数据源工作区有 `process.log`，记录 `analyze（含导出）→ ingest → preprocess` 的过程与异常，用于**通过消费结果发现 analyzer 产出的元素/关系错误**。由 `internal/pipeline/proclog` 写入，每次分析开始时截断重建。
+
+行格式：`<RFC3339> <LEVEL> [<阶段>:<检查项>] k=v ...`，`LEVEL` 为 `INFO` / `WARN` / `ERROR` / `SUMMARY`。
+
+| 阶段 | 检查项 | 级别 |
+|---|---|---|
+| analyze | 元素/关系规模、三字段覆盖率、语法糖计数 | SUMMARY |
+| analyze | 元素 kind 分布、关系类型直方图 | INFO |
+| analyze | 空 QN 元素、空/缺失端点、未知 kind | WARN |
+| export | 每个 jsonl 的行数与字节数、总量 | INFO / SUMMARY |
+| ingest | JSONL 解析失败（记录后**跳过该行**，不中断导入） | ERROR |
+| ingest | 空字段、重复元素 `(qn, kind)` | WARN |
+| ingest | 端点悬空（qn+kind 不存在）、端点 kind 不匹配 | WARN（逐条明细） |
+| preprocess | 游离元素（无 `element_node`）、游离类型（`fan_in=fan_out=0`） | WARN |
+| preprocess | 悬空归属（`namespace_qn`/`enclosing_qn`/`type_qn` 指向不存在元素） | WARN |
+| preprocess | 层级孤儿（`parent_qn` 不存在）、未知关系类型 | WARN |
+| preprocess | 默认包元素（`namespace_qn` 为空） | WARN |
+| preprocess | 派生表行数为 0（hierarchy_node/element_node/type_edge/type_fan/metrics） | ERROR |
+| preprocess | 各派生表行数、环组数 | INFO / SUMMARY |
+
+约定：
+
+- **每项明细最多 200 条**，超出只写汇总（`total` 是完整计数，`emitted` 是已写条数）。
+- 每个阶段结束必写一行 `SUMMARY`，是最省力的消费入口。
+- 只读检查、不修补数据（见 [development.md](development.md) §2.3）。
+- 日志写失败降级为 stderr，不影响分析结果。
+
+### 5.5 源码按需读盘
 
 源码内容不入 DuckDB。`GET /source?qn=` 时查 `elements` 拿 path + 元素树 → 从 `manifest.root_path` 拼绝对路径读文件 → 进程内 LRU 缓存。path 必须来自 `elements` 已登记值（防目录穿越）。
 

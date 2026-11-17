@@ -33,10 +33,15 @@ func (p *Pipeline) stepPreprocess(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("register dimension: %w", err)
 	}
 	dim.ID = dimID
-	if err := preprocess.New(repo, dim).Build(); err != nil {
+	if err := preprocess.New(repo, dim).WithLog(p.log).Build(); err != nil {
 		return "", fmt.Errorf("build index: %w", err)
 	}
 	return fmt.Sprintf("维度=%s(id=%d) 层级/预计算完成", p.language, dimID), nil
+}
+
+// loadDimensionConfig 读取维度配置文件（analyze 阶段做 kind 白名单校验用）。
+func loadDimensionConfig(path string) (*preprocess.Dimension, error) {
+	return preprocess.Load(path)
 }
 
 // dimPath 返回维度配置路径（按语言选择，可被环境变量覆盖）。

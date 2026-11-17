@@ -43,6 +43,44 @@ type FanRow struct {
 	FanOutSites int
 }
 
+// IsolatedTypes 无跨类型边的类型（fan_in=0 且 fan_out=0），返回总数与明细。
+func (r *Repository) IsolatedTypes(dimID, limit int) (int, []ElementRef, error) {
+	const cond = `dimension_id = ? AND fan_in = 0 AND fan_out = 0`
+	var total int
+	if err := r.db().QueryRow(`SELECT COUNT(*) FROM type_fan WHERE `+cond, dimID).Scan(&total); err != nil {
+		return 0, nil, err
+	}
+	rows, err := r.db().Query(`SELECT qn, COALESCE(kind,'') FROM type_fan WHERE `+cond+` ORDER BY qn LIMIT ?`, dimID, limit)
+	if err != nil {
+		return total, nil, err
+	}
+	defer rows.Close()
+	var out []ElementRef
+	for rows.Next() {
+		var e ElementRef
+		if err := rows.Scan(&e.QN, &e.Kind); err != nil {
+			return total, out, err
+		}
+		out = append(out, e)
+	}
+	return total, out, rows.Err()
+}
+
+// TableCounts 返回预计算层各表在该维度下的行数（空表检查用）。
+func (r *Repository) TableCounts(dimID int) (map[string]int, error) {
+	tables := []string{"hierarchy_node", "element_node", "type_edge", "call_site", "type_fan",
+		"violation_hit", "cycle_group", "pkg_rollup", "metrics"}
+	out := map[string]int{}
+	for _, t := range tables {
+		var n int
+		if err := r.db().QueryRow(`SELECT COUNT(*) FROM `+t+` WHERE dimension_id = ?`, dimID).Scan(&n); err != nil {
+			return out, err
+		}
+		out[t] = n
+	}
+	return out, nil
+}
+
 func (r *Repository) TypeFans(dimID int) (map[string]FanRow, error) {
 	rows, err := r.db().Query(`SELECT qn, COALESCE(kind,''), fan_in, fan_out, fan_in_types, fan_out_types,
 		fan_in_sites, fan_out_sites FROM type_fan WHERE dimension_id = ?`, dimID)

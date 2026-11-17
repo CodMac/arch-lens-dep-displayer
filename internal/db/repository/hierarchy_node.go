@@ -82,6 +82,39 @@ func (r *Repository) ParentPairsByDepthDesc(dimID, level int) ([]PkgTree, error)
 	return out, rows.Err()
 }
 
+// OrphanNode 层级孤儿（parent_qn 指向不存在的节点）。
+type OrphanNode struct {
+	QN     string
+	Kind   string
+	Level  int
+	Parent string
+}
+
+// OrphanHierarchyNodes 返回 parent_qn 非空但父节点不存在的层级节点（总数 + 明细）。
+func (r *Repository) OrphanHierarchyNodes(dimID, limit int) (int, []OrphanNode, error) {
+	const cond = `h.parent_qn <> '' AND NOT EXISTS (
+		SELECT 1 FROM hierarchy_node p WHERE p.dimension_id = h.dimension_id AND p.qn = h.parent_qn)`
+	var total int
+	if err := r.db().QueryRow(`SELECT COUNT(*) FROM hierarchy_node h WHERE h.dimension_id = ? AND `+cond, dimID).Scan(&total); err != nil {
+		return 0, nil, err
+	}
+	rows, err := r.db().Query(`SELECT h.qn, h.kind, h.level, h.parent_qn FROM hierarchy_node h
+		WHERE h.dimension_id = ? AND `+cond+` ORDER BY h.level, h.qn LIMIT ?`, dimID, limit)
+	if err != nil {
+		return total, nil, err
+	}
+	defer rows.Close()
+	var out []OrphanNode
+	for rows.Next() {
+		var n OrphanNode
+		if err := rows.Scan(&n.QN, &n.Kind, &n.Level, &n.Parent); err != nil {
+			return total, out, err
+		}
+		out = append(out, n)
+	}
+	return total, out, rows.Err()
+}
+
 func (r *Repository) TopNodes(dimID, level int) ([]Node, error) {
 	rows, err := r.db().Query(`SELECT qn, kind,
 			(SELECT COUNT(*) FROM hierarchy_node c WHERE c.dimension_id = h.dimension_id AND c.level = h.level + 1 AND c.parent_qn = h.qn)

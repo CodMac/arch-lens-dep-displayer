@@ -17,14 +17,18 @@ func (p *Pipeline) stepIngest(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("recreate db: %w", err)
 	}
 	defer db.Close(c)
-	ig := ingest.New(repository.Of(c), p.OutputDir())
+	ig := ingest.New(repository.Of(c), p.OutputDir(), p.log)
 	elCount, relCount, err := ig.Ingest()
 	if err != nil {
 		return "", fmt.Errorf("ingest: %w", err)
 	}
-	// 端点 JOIN 落空只计数告警，不改写（决策 22：预计算层不修补解析缺陷）。
-	if ig.Dangling > 0 {
-		return fmt.Sprintf("元素=%d 关系=%d 悬空端点=%d（请抛 analyzer）", elCount, relCount, ig.Dangling), nil
+	// 端点 JOIN 落空只计数告警，不改写（docs/development.md §2.3：预计算层不修补解析缺陷）。
+	msg := fmt.Sprintf("元素=%d 关系=%d 悬空端点=%d", elCount, relCount, ig.Dangling)
+	if ig.Malformed > 0 {
+		msg += fmt.Sprintf(" 解析失败=%d", ig.Malformed)
 	}
-	return fmt.Sprintf("元素=%d 关系=%d 悬空端点=0", elCount, relCount), nil
+	if ig.Dangling > 0 || ig.Malformed > 0 {
+		msg += "（详见 process.log）"
+	}
+	return msg, nil
 }

@@ -7,14 +7,15 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/CodMac/arch-lens-dep-analyer/model"
 
 	"github.com/CodMac/arch-lens-dep-displayer/internal/db/repository"
+	"github.com/CodMac/arch-lens-dep-displayer/internal/pipeline/proclog"
 )
 
 // implDetailKinds 源码语法结构（L2「隐藏实现细节」开关用），与 is_sugar 正交（决策 4）。
@@ -30,13 +31,20 @@ var implDetailKinds = map[model.ElementKind]bool{
 type Ingester struct {
 	repo *repository.Repository
 	dir  string
-	// Dangling 端点 JOIN 落空计数（只告警，不改写；见 §11 决策 22）。
+	log  *proclog.Logger
+	// Dangling 端点 JOIN 落空计数（只告警，不改写；见 docs/development.md §2.3）。
 	Dangling int
+	// Malformed 解析失败被跳过的行数。
+	Malformed int
 }
 
 // New 创建导入器。repo 绑定已建好表结构的连接，dir 为含 element.jsonl 与 relation_*.jsonl 的目录。
-func New(repo *repository.Repository, dir string) *Ingester {
-	return &Ingester{repo: repo, dir: dir}
+// log 可为 nil（不写过程日志）。
+func New(repo *repository.Repository, dir string, log *proclog.Logger) *Ingester {
+	if log == nil {
+		log = proclog.Open("") // 降级：只写 stderr
+	}
+	return &Ingester{repo: repo, dir: dir, log: log}
 }
 
 // Ingest 执行完整导入：扫描 JSONL → 批量写 DuckDB。
@@ -60,12 +68,75 @@ func (ig *Ingester) Ingest() (int, int, error) {
 		relCount += n
 	}
 
-	n, err := ig.repo.CountDanglingRelations()
-	if err != nil {
-		return 0, 0, err
-	}
-	ig.Dangling = n
+	ig.reportAnomalies(elCount, relCount)
 	return elCount, relCount, nil
+}
+
+// reportAnomalies 入库后做一致性检查并把明细/汇总写入过程日志（只读，不修补）。
+func (ig *Ingester) reportAnomalies(elCount, relCount int) {
+	log := ig.log
+
+	// 1. 端点悬空（qn+kind 在 elements 中不存在）。
+	total, list, err := ig.repo.DanglingRelations(200)
+	if err != nil {
+		log.Warn("ingest:dangling-endpoint", "", "err", err.Error())
+	} else {
+		ig.Dangling = total
+		for _, d := range list {
+			log.Warn("ingest:dangling-endpoint", "", "type", d.Type, "path", d.Path, "line", d.Line,
+				"source_qn", d.SourceQN, "source_kind", d.SourceKind,
+				"target_qn", d.TargetQN, "target_kind", d.TargetKind, "reason", d.Reason)
+		}
+		log.Summary("ingest:dangling-endpoint", "total", total, "emitted", len(list))
+	}
+
+	// 2. 端点 kind 不匹配（qn 存在但 kind 不同）。
+	total, mism, err := ig.repo.KindMismatchRelations(200)
+	if err != nil {
+		log.Warn("ingest:kind-mismatch", "", "err", err.Error())
+	} else {
+		for _, m := range mism {
+			log.Warn("ingest:kind-mismatch", "", "type", m.Type, "path", m.Path, "line", m.Line,
+				"qn", m.QN, "expected_kind", m.Expected, "actual_kind", m.Actual, "end", m.End)
+		}
+		log.Summary("ingest:kind-mismatch", "total", total, "emitted", len(mism))
+	}
+
+	// 3. 关系类型分布（含结构关系）。
+	if hist, err := ig.repo.RelationTypeHistogram(); err != nil {
+		log.Warn("ingest:relation-types", "", "err", err.Error())
+	} else {
+		for _, kv := range sortedCounts(hist) {
+			log.Info("ingest:relation-types", "", "type", kv.key, "count", kv.count)
+		}
+	}
+
+	log.Summary("ingest", "elements", elCount, "relations", relCount,
+		"malformed", ig.Malformed, "dangling", ig.Dangling)
+}
+
+// sortedCounts 把 map 转成按数量倒序、key 升序的切片。
+func sortedCounts(m map[string]int) []struct {
+	key   string
+	count int
+} {
+	out := make([]struct {
+		key   string
+		count int
+	}, 0, len(m))
+	for k, v := range m {
+		out = append(out, struct {
+			key   string
+			count int
+		}{k, v})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].count != out[j].count {
+			return out[i].count > out[j].count
+		}
+		return out[i].key < out[j].key
+	})
+	return out
 }
 
 // ---- 对象方法：单文件导入 ----
@@ -85,11 +156,20 @@ func (ig *Ingester) ingestElements(path string) (int, error) {
 	err = scanJSONL(f, func(line []byte) error {
 		var el model.CodeElement
 		if err := json.Unmarshal(line, &el); err != nil {
-			return fmt.Errorf("element line %d: %w", count+1, err)
+			// 记录并跳过（不中断整库导入），让问题暴露在日志里。
+			ig.Malformed++
+			ig.log.Error("ingest:malformed-json", "", "file", filepath.Base(path), "line", count+1, "err", err.Error())
+			count++
+			return nil
 		}
 		row := toElementRow(el)
+		if el.QualifiedName == "" {
+			ig.log.Warn("ingest:empty-element-qn", "", "file", filepath.Base(path), "line", count+1, "kind", string(el.Kind))
+		}
 		key := el.QualifiedName + "\x00" + string(el.Kind)
 		if i, ok := seen[key]; ok {
+			ig.log.Warn("ingest:duplicate-element", "", "qn", el.QualifiedName, "kind", string(el.Kind),
+				"file", filepath.Base(path), "line", count+1, "action", "overwrite")
 			rows[i] = row
 		} else {
 			seen[key] = len(rows)
@@ -114,12 +194,33 @@ func (ig *Ingester) ingestRelations(path string) (int, error) {
 
 	var rows []repository.RelationRow
 	var count int
+	base := filepath.Base(path)
 	err = scanJSONL(f, func(line []byte) error {
 		var rel model.DependencyRelation
 		if err := json.Unmarshal(line, &rel); err != nil {
-			return fmt.Errorf("relation line %d in %s: %w", count+1, filepath.Base(path), err)
+			ig.Malformed++
+			ig.log.Error("ingest:malformed-json", "", "file", base, "line", count+1, "err", err.Error())
+			count++
+			return nil
 		}
-		rows = append(rows, toRelationRow(rel))
+		row := toRelationRow(rel)
+		// 空字段告警（不阻断导入）。
+		var missing []string
+		if row.SourceQN == "" {
+			missing = append(missing, "source_qn")
+		}
+		if row.TargetQN == "" {
+			missing = append(missing, "target_qn")
+		}
+		if row.Type == "" {
+			missing = append(missing, "type")
+		}
+		if len(missing) > 0 {
+			ig.log.Warn("ingest:empty-field", "", "file", base, "line", count+1,
+				"missing", strings.Join(missing, ","), "type", row.Type,
+				"source_qn", row.SourceQN, "target_qn", row.TargetQN)
+		}
+		rows = append(rows, row)
 		count++
 		return nil
 	})

@@ -37,6 +37,8 @@ Windows 下运行需把 `duckdb.dll` 放在 exe 同目录（或把 `deps/windows
 
 改动 pipeline / 预计算后，用真实源码目录跑一次完整 5 步分析，确认关键指标未漂移（元素/关系数、类型级边对数、方法级边对数、环组数、高扇入/扇出命中数）。各语言的验收基线见 [languages/](languages/)。
 
+同时检查 `sources/{sid}/process.log` 的 `SUMMARY` 行：`dangling` / `kind_mismatch` / `malformed` 应为 0，游离元素与游离类型数应与 `GET /dimensions/{id}/meta` 一致。日志格式与检查项见 [architecture.md](architecture.md) §5.4。
+
 ## 2. 硬性约束
 
 ### 2.1 分层与依赖方向
@@ -66,6 +68,8 @@ db → duckdbthin
 analyzer 的解析问题（端点悬空、默认包空归属、跨文件 static 丢弃、C++ 重开 namespace 悬空 `type_qn` 等）只能**记录并抛回 analyzer**，`ingest` / `preprocess` 不得做 QN/kind 改写或语义兜底。
 
 **为什么**：补丁会把「数据源错误」固化成「派生层约定」，analyzer 修复后补丁变成二次污染。唯一的例外是查询期展示兜底（如默认包用 `COALESCE(NULLIF(namespace_qn,''),'(default)')` 参与建树），且不改写 `elements`。
+
+**发现问题的途径**：所有解析缺陷都写进 `sources/{sid}/process.log`（悬空端点、kind 不匹配、游离元素、悬空归属等），只记录不修补。新增检查项时同样只读。
 
 ### 2.4 归属字段由解析器给，不在后端推导
 

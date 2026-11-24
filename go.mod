@@ -2,10 +2,10 @@ module github.com/CodMac/arch-lens-dep-displayer
 
 go 1.25.2
 
-replace github.com/CodMac/arch-lens-dep-analyer => ../arch-lens-dep-analyer
+replace github.com/CodMac/arch-lens-dep-analyzer => ../arch-lens-dep-analyzer
 
 require (
-	github.com/CodMac/arch-lens-dep-analyer v0.0.0-00010101000000-000000000000
+	github.com/CodMac/arch-lens-dep-analyzer v0.0.0-00010101000000-000000000000
 	github.com/go-chi/chi/v5 v5.5.0
 	gopkg.in/yaml.v3 v3.0.1
 )

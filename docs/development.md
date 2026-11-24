@@ -9,7 +9,7 @@
 | Go 1.25+ | 后端 |
 | Node.js 18+ | 前端构建（首次启动会自动 `npm install` + `npm run build`） |
 | DuckDB 动态库 | `deps/windows_amd64/duckdb.dll` 或 `deps/linux_amd64/libduckdb.so` |
-| analyzer 源码 | `go.mod` 用 `replace ... => ../arch-lens-dep-analyer`，需同级目录存在 |
+| analyzer 源码 | `go.mod` 用 `replace ... => ../arch-lens-dep-analyzer`，需同级目录存在 |
 
 ```bash
 # 后端

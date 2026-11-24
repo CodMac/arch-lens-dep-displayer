@@ -9,11 +9,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/CodMac/arch-lens-dep-analyer/core"
-	"github.com/CodMac/arch-lens-dep-analyer/engine"
-	"github.com/CodMac/arch-lens-dep-analyer/model"
-	"github.com/CodMac/arch-lens-dep-analyer/output"
-	_ "github.com/CodMac/arch-lens-dep-analyer/x/java" // 注册 Java 语言实现
+	"github.com/CodMac/arch-lens-dep-analyzer/core"
+	"github.com/CodMac/arch-lens-dep-analyzer/engine"
+	"github.com/CodMac/arch-lens-dep-analyzer/model"
+	"github.com/CodMac/arch-lens-dep-analyzer/output"
+	_ "github.com/CodMac/arch-lens-dep-analyzer/x/java" // 注册 Java 语言实现
 )
 
 // stepAnalyze 依赖分析 + 导出 JSONL（单步完成，避免重复遍历/重复分析）。

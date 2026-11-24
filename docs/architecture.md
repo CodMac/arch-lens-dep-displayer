@@ -11,7 +11,7 @@
 | 入口 | Go 1.25 + `flag` | `cmd/displayer` 是唯一命令入口 |
 | HTTP | `go-chi/chi v5` | 轻量路由，无框架侵入 |
 | 存储 | DuckDB（cgo 直调 C API） | 列存 + 嵌入式，适合一次写入、多次按层查询 |
-| 分析引擎 | `arch-lens-dep-analyer`（replace 到本地目录） | 产出 JSONL，本项目只消费 |
+| 分析引擎 | `arch-lens-dep-analyzer`（replace 到本地目录） | 产出 JSONL，本项目只消费 |
 | 配置 | `gopkg.in/yaml.v3` | 维度配置 |
 | 前端 | Vue 3 + Vite + TypeScript + Pinia | 无 vue-router，hash 路由 |
 | 图渲染 | AntV G6 v5 | 气泡 combo / 蝴蝶固定布局 |

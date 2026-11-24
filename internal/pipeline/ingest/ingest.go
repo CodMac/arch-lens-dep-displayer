@@ -1,5 +1,5 @@
-// Package ingest 提供原始数据导入器：把 dep-analyer 的 JSONL 输出导入 DuckDB 主表。
-// 复用 arch-lens-dep-analyer 的 model 包，直接反序列化 CodeElement / DependencyRelation。
+// Package ingest 提供原始数据导入器：把 dep-analyzer 的 JSONL 输出导入 DuckDB 主表。
+// 复用 arch-lens-dep-analyzer 的 model 包，直接反序列化 CodeElement / DependencyRelation。
 // 本包只负责「JSONL → 行结构」的转换与文件遍历，所有 SQL 走 repository。
 package ingest
 
@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/CodMac/arch-lens-dep-analyer/model"
+	"github.com/CodMac/arch-lens-dep-analyzer/model"
 
 	"github.com/CodMac/arch-lens-dep-displayer/internal/db/repository"
 	"github.com/CodMac/arch-lens-dep-displayer/internal/pipeline/proclog"

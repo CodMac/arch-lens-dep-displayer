@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/CodMac/arch-lens-dep-analyer/engine"
+	"github.com/CodMac/arch-lens-dep-analyzer/engine"
 
 	"github.com/CodMac/arch-lens-dep-displayer/internal/pipeline/proclog"
 )

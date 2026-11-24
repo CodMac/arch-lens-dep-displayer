@@ -60,6 +60,13 @@ structural_relation_types: [CONTAIN, IMPORT]
 > `CALL` 的目标 `VARIABLE` 仅 2 条（`X::new` 方法引用形态），正常应为 `METHOD`。
 > `THROW` 有 21 条无 `Location`（`throws` 声明子句），其余 630 条是 `throw new X()` 语句。
 
+> **`USE` 的双重语义**（analyzer `docs/qn-format.md` §3.2 / `docs/languages/java.md` §3.2）：
+> 普通标识符引用（`user`、`this.field`）的 Target 是 `VARIABLE`/`FIELD`；
+> 类字面量 `X.class`（`mores.java.rel.ast_kind = class_literal`）的 Target 是类型元素
+> （`CLASS`/`INTERFACE`/`ENUM`/`ANNOTATION`）。两者都是真实语义依赖，均计入 `type_edge`。
+> 本表 `USE` 行的「目标 kind（Top）」只列了变量/字段，是因为类型引用占比很小；
+> 需要区分时按 `target_kind` 或 `raw_text` 中的 `ast_kind` 过滤。
+
 ---
 
 ## 3. `type_edge` 计算口径
